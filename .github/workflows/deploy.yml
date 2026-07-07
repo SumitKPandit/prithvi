@@ -1,0 +1,14 @@
+name: Deploy Prithvi
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Placeholder
+        run: echo "Deployment pipleline works!"
