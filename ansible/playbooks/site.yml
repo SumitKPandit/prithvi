@@ -1,0 +1,22 @@
+---
+- name: Test privilege escalation
+  hosts: bootstrap
+  gather_facts: false
+
+  tasks:
+    - name: Who am I without become?
+      ansible.builtin.command: whoami
+      register: normal_user
+
+    - name: Show normal user
+      ansible.builtin.debug:
+        var: normal_user.stdout
+
+    - name: Who am I with become?
+      become: true
+      ansible.builtin.command: whoami
+      register: root_user
+
+    - name: Show root user
+      ansible.builtin.debug:
+        var: root_user.stdout

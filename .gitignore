@@ -1,1 +1,19 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Ansible
+*.retry
+
+# IDE
+.vscode/
+.idea/
+
+# Secrets
+*.vault
+.env
+.env.*
 **/.env

@@ -1,0 +1,16 @@
+---
+- name: Diagnose Ansible connectivity
+  hosts: bootstrap
+  gather_facts: false
+
+  tasks:
+    - name: Verify remote connectivity
+      ansible.builtin.ping:
+
+    - name: Show current user
+      ansible.builtin.command: whoami
+      register: current_user
+
+    - name: Display current user
+      ansible.builtin.debug:
+        var: current_user.stdout
