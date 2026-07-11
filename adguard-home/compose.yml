@@ -9,7 +9,6 @@ services:
     ports:
       - "53:53/tcp"
       - "53:53/udp"
-      - "8001:80/tcp"
     logging:
       driver: json-file
       options:
@@ -19,10 +18,11 @@ services:
       - traefik-network
     labels:
       - traefik.enable=true
-      - traefik.http.routers.adgaurd-home.rule=Host("adguard.home.sumitkpandit.in")
-      - traefik.http.routers.adgaurd-home.entrypoints=web
-      - traefik.http.routers.adgaurd-home.tls=true
-      - traefik.http.routers.adgaurd-home.tls.certresolver=cloudflare
+      - traefik.http.routers.adguard-home.rule=Host(`adguard.lan.sumitkpandit.in`)
+      - traefik.http.routers.adguard-home.entrypoints=websecure
+      - traefik.http.routers.adguard-home.tls=true
+      - traefik.http.routers.adguard-home.tls.certresolver=cloudflare
+      - traefik.http.services.adguard-home.loadbalancer.server.port=80
 
 networks:
   traefik-network:

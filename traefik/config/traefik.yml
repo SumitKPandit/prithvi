@@ -5,8 +5,7 @@ log:
   level: DEBUG
 api:
   dashboard: true
-  insecure: true
-entrypoint:
+entryPoints:
   web:
     address: :80
     http:
