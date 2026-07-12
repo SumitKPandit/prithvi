@@ -3,6 +3,8 @@ services:
     image: ghcr.io/gethomepage/homepage:v1.13.2
     container_name: homepage
     restart: unless-stopped
+    environment:
+      - HOMEPAGE_ALLOWED_HOSTS=home.sumitkpandit.in,homepage.lan.sumitkpandit.in,lan.sumitkpandit.in
     volumes:
       - ./config:/app/config # Make sure your local config directory exists
       - /var/run/docker.sock:/var/run/docker.sock:ro
