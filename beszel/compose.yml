@@ -4,6 +4,9 @@ services:
     container_name: beszel
     restart: unless-stopped
 
+    environment:
+      - APP_URL: https://beszel.lan.sumitkpandit.in
+
     volumes:
       - ./data/hub:/beszel_data
 
