@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
 
     environment:
-      - APP_URL: https://beszel.lan.sumitkpandit.in
+      APP_URL: https://beszel.lan.sumitkpandit.in
 
     volumes:
       - ./data/hub:/beszel_data
