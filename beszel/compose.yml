@@ -1,0 +1,38 @@
+services:
+  beszel:
+    image: henrygd/beszel:v0.18.7
+    container_name: beszel
+    restart: unless-stopped
+
+    volumes:
+      - ./data:/beszel_data
+
+    networks:
+      - traefik-network
+
+    labels:
+      - traefik.enable=true
+
+      - traefik.http.routers.beszel.rule=Host(`beszel.lan.sumitkpandit.in`)
+      - traefik.http.routers.beszel.entrypoints=websecure
+      - traefik.http.routers.beszel.tls=true
+      - traefik.http.routers.beszel.tls.certresolver=cloudflare
+      - traefik.http.services.beszel.loadbalancer.server.port=8090
+
+      # Homepage
+      - homepage.group=Infrastructure
+      - homepage.name=Beszel
+      - homepage.icon=beszel.svg
+      - homepage.href=https://beszel.lan.sumitkpandit.in
+      - homepage.description=Server Monitoring
+
+      # Homepage Widget
+      - homepage.widget.type=beszel
+      - homepage.widget.url=http://beszel:8090
+      - homepage.widget.username=${BESZEL_USERNAME}
+      - homepage.widget.password=${BESZEL_PASSWORD}
+      - homepage.widget.version=2
+
+networks:
+  traefik-network:
+    external: true
