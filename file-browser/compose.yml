@@ -24,6 +24,10 @@ services:
       - homepage.icon=filebrowser.svg
       - homepage.href=https://drive.lan.sumitkpandit.in
       - homepage.description=File Storage & Sharing.
+      - homepage.widget.type=filebrowser
+      - homepage.widget.url=https://drive.lan.sumitkpandit.in
+      - homepage.widget.username=${FILEBROWSER_USERNAME}
+      - homepage.widget.password=${FILEBROWSER_PASSWORD}
 
 networks:
   traefik-network:
