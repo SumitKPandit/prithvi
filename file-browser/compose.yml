@@ -1,0 +1,30 @@
+service:
+  file-browser:
+    image: filebrowser/filebrowser:v2.63.18
+    container_name: file-browser
+    restart: unless-stopped
+
+    volumes:
+      - ./database:/database
+      - ./config:/config
+      - /mnt/data:/srv
+
+    networks:
+      - traefik-network
+
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.file-browser.rule=Host(`drive.lan.sumitkpandit.in`)
+      - traefik.http.routers.file-browser.entrypoints=websecure
+      - traefik.http.routers.file-browser.tls=true
+      - traefik.http.routers.file-browser.tls.certresolver=cloudflare
+      - traefik.http.services.file-browser.loadbalancer.server.port=80
+      - homepage.group=Application
+      - homepage.name=File Browser
+      - homepage.icon=filebrowser.svg
+      - homepage.href=https://drive.lan.sumitkpandit.in
+      - homepage.description=File Storage & Sharing.
+
+networks:
+  traefik-network:
+    external: true
