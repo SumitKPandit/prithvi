@@ -34,6 +34,7 @@ services:
       - homepage.widget.url=http://beszel:8090
       - homepage.widget.username=${BESZEL_USERNAME}
       - homepage.widget.password=${BESZEL_PASSWORD}
+      - homepage.widget.systemId=1uqnepu8suf3x9e
       - homepage.widget.version=2
 
 networks:
