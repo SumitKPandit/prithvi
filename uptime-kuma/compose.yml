@@ -1,0 +1,19 @@
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:2
+    container_name: uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    networks:
+      - traefik-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.kuma.rule=Host(`uptime.lan.sumitkpandit.in`)
+      - traefik.http.routers.kuma.entrypoints=websecure
+      - traefik.http.routers.kuma.tls.certresolver=cloudflare
+      - traefik.http.services.kuma.loadbalancer.server.port=3001
+
+networks:
+  traefik-network:
+    external: true
