@@ -8,14 +8,20 @@ services:
     volumes:
       - ./config:/app/config # Make sure your local config directory exists
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /mnt/data:/mnt/data:ro
     networks:
       - traefik-network
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.homepage.rule=Host(`lan.sumitkpandit.in`)"
-      - "traefik.http.routers.homepage.entrypoints=websecure"
-      - "traefik.http.routers.homepage.tls.certresolver=cloudflare"
-      - "traefik.http.services.homepage.loadbalancer.server.port=3000"
+      - traefik.enable=true
+      - traefik.http.routers.homepage.rule=Host(`lan.sumitkpandit.in`)
+      - traefik.http.routers.homepage.entrypoints=websecure
+      - traefik.http.routers.homepage.tls.certresolver=cloudflare
+      - traefik.http.services.homepage.loadbalancer.server.port=3000
+      - homepage.group=Application
+      - homepage.icon=homepage.svg
+      - homepage.name=Homepage
+      - homepage.href=https://lan.sumitkpandit.in
+      - homepage.description="Personal dashboard for managing your services"
 
 networks:
   traefik-network:

@@ -21,6 +21,11 @@ services:
       - traefik.http.routers.traefik.tls=true
       - traefik.http.routers.traefik.tls.certresolver=cloudflare
       - traefik.http.routers.traefik.service=api@internal
+      - homepage.group=Infrastructure
+      - homepage.icon=traefik.svg
+      - homepage.name=Traefik
+      - homepage.href=https://traefik.lan.sumitkpandit.in
+      - homepage.description="Reverse proxy and load balancer for managing your services"
 
 networks:
   traefik-network:

@@ -6,7 +6,7 @@
     network: true
     disk: 
       - /
-      - /mnt/data/
+      - /mnt/data
 
 - openmeteo:
     label: Bengaluru # optional

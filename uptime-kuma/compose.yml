@@ -13,6 +13,11 @@ services:
       - traefik.http.routers.kuma.entrypoints=websecure
       - traefik.http.routers.kuma.tls.certresolver=cloudflare
       - traefik.http.services.kuma.loadbalancer.server.port=3001
+      - homepage.group=Infrastructure
+      - homepage.icon=uptime-kuma.svg
+      - homepage.name="Uptime Kuma"
+      - homepage.href=https://uptime.lan.sumitkpandit.in
+      - homepage.description="Simple and powerful uptime monitoring solution"
 
 networks:
   traefik-network:
