@@ -1,4 +1,4 @@
-service:
+services:
   file-browser:
     image: filebrowser/filebrowser:v2.63.18
     container_name: file-browser
