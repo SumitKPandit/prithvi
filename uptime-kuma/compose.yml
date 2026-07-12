@@ -15,9 +15,9 @@ services:
       - traefik.http.services.kuma.loadbalancer.server.port=3001
       - homepage.group=Infrastructure
       - homepage.icon=uptime-kuma.svg
-      - homepage.name="Uptime Kuma"
+      - homepage.name=Uptime Kuma
       - homepage.href=https://uptime.lan.sumitkpandit.in
-      - homepage.description="Simple and powerful uptime monitoring solution"
+      - homepage.description=Simple and powerful uptime monitoring solution
       - homepage.widget.type=uptimekuma
       - homepage.widget.url=https://uptime.lan.sumitkpandit.in
       - homepage.widget.slug=prithvi

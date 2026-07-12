@@ -18,10 +18,10 @@ services:
       - traefik.http.routers.homepage.tls.certresolver=cloudflare
       - traefik.http.services.homepage.loadbalancer.server.port=3000
       - homepage.group=Application
-      - homepage.icon=homepage.svg
+      - homepage.icon=homepage.png
       - homepage.name=Homepage
       - homepage.href=https://lan.sumitkpandit.in
-      - homepage.description="Personal dashboard for managing your services"
+      - homepage.description=Personal dashboard for managing your services
 
 networks:
   traefik-network:
