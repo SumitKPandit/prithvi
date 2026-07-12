@@ -8,7 +8,7 @@ services:
       APP_URL: https://beszel.lan.sumitkpandit.in
 
     volumes:
-      - ./data/hub:/beszel_data
+      - ./data:/beszel_data
 
     networks:
       - traefik-network
@@ -35,23 +35,6 @@ services:
       - homepage.widget.username=${BESZEL_USERNAME}
       - homepage.widget.password=${BESZEL_PASSWORD}
       - homepage.widget.version=2
-
-  beszel-agent:
-    image: henrygd/beszel-agent
-    container_name: beszel-agent
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./data/agent:/var/lib/beszel-agent
-      # monitor other disks / partitions by mounting a folder in /extra-filesystems
-      - /:/extra-filesystems/os:ro
-      - /mnt/data:/extra-filesystems/sd1:ro
-    environment:
-      LISTEN: 45876
-      KEY: ${AGENT_KEY}
-      TOKEN: ${AGENT_TOKEN}
-      HUB_URL: https://beszel.lan.sumitkpandit.in
 
 networks:
   traefik-network:
