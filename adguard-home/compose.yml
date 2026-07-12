@@ -26,9 +26,13 @@ services:
       - traefik.http.services.adguard-home.loadbalancer.server.port=80
       - homepage.group=Infrastructure
       - homepage.icon=adguard-home.svg
-      - homepage.name="AdGuard Home"
+      - homepage.name=AdGuard Home
       - homepage.href=https://adguard.lan.sumitkpandit.in
-      - homepage.description="Network-wide ads & trackers blocking DNS server"
+      - homepage.description=Network-wide ads & trackers blocking DNS server
+      - homepage.widget.type=adguard
+      - homepage.widget.url=https://adguard.lan.sumitkpandit.in
+      - homepage.widget.username=${ADGUARD_USERNAME}
+      - homepage.widget.password=${ADGUARD_PASSWORD}
 
 networks:
   traefik-network:

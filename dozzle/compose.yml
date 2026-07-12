@@ -19,7 +19,7 @@ services:
       - homepage.icon=dozzle.svg
       - homepage.name=Dozzle
       - homepage.href=https://dozzle.lan.sumitkpandit.in
-      - homepage.description="A simple, lightweight log viewer for Docker container logs"
+      - homepage.description=A simple, lightweight log viewer for Docker container logs
 
 networks:
   traefik-network:
