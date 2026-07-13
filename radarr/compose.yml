@@ -9,7 +9,7 @@ services:
     volumes:
       - ./config:/config
       - /mnt/data/Storage/Movies:/movies #optional
-      - /mnt/data/Storage/Downloads/qBittorrent/complete:/downloads #optional
+      - /mnt/data/Storage/Downloads/qBittorrent:/downloads #optional
     restart: unless-stopped
     networks:
       - traefik-network
