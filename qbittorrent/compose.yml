@@ -23,13 +23,13 @@ services:
       - traefik.http.routers.qbittorrent.rule=Host(`qbittorrent.lan.sumitkpandit.in`)
       - traefik.http.routers.qbittorrent.entrypoints=websecure
       - traefik.http.routers.qbittorrent.tls=true
-      - traefik.http.routers.qbittorrent.tls.certresolver=myresolver
+      - traefik.http.routers.qbittorrent.tls.certresolver=cloudflare
       - traefik.http.services.qbittorrent.loadbalancer.server.port=8080
       - homepage.group=Application
       - homepage.name=qBittorrent
       - homepage.icon=qbittorrent.svg
       - homepage.href=https://qbittorrent.lan.sumitkpandit.in
-      - homepage.description=WebUI for qBittorrent
+      - homepage.description=Open-source software alternative to µTorrent
       - homepage.widget.type=qbittorrent
       - homepage.widget.url=https://qbittorrent.lan.sumitkpandit.in
       - homepage.widget.enableLeechProgress=true

@@ -17,7 +17,7 @@ services:
       - homepage.icon=uptime-kuma.svg
       - homepage.name=Uptime Kuma
       - homepage.href=https://uptime.lan.sumitkpandit.in
-      - homepage.description=Simple and powerful uptime monitoring solution
+      - homepage.description=Self-hosted monitoring tool
       - homepage.widget.type=uptimekuma
       - homepage.widget.url=https://uptime.lan.sumitkpandit.in
       - homepage.widget.slug=prithvi

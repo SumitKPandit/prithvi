@@ -21,7 +21,7 @@ services:
       - homepage.icon=homepage.png
       - homepage.name=Homepage
       - homepage.href=https://lan.sumitkpandit.in
-      - homepage.description=Personal dashboard for managing your services
+      - homepage.description=Modern, fully static, fast, secure fully proxied, highly customizable application dashboard
 
 networks:
   traefik-network:

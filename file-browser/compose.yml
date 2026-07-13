@@ -23,7 +23,7 @@ services:
       - homepage.name=File Browser
       - homepage.icon=filebrowser.svg
       - homepage.href=https://drive.lan.sumitkpandit.in
-      - homepage.description=File Storage & Sharing.
+      - homepage.description=File managing interface that can be used to upload, delete, preview and edit your files
       - homepage.widget.type=filebrowser
       - homepage.widget.url=https://drive.lan.sumitkpandit.in
       - homepage.widget.username=${FILEBROWSER_USERNAME}

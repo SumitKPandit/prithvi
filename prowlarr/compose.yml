@@ -1,0 +1,32 @@
+services:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Kolkata
+    volumes:
+      - ./config:/config
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.prowlarr.rule=Host(`prowlarr.lan.sumitkpandit.in`)
+      - traefik.http.routers.prowlarr.entrypoints=websecure
+      - traefik.http.routers.prowlarr.tls=true
+      - traefik.http.routers.prowlarr.tls.certresolver=cloudflare
+      - traefik.http.services.prowlarr.loadbalancer.server.port=9696
+      - homepage.group=Application
+      - homepage.name=Prowlarr
+      - homepage.icon=prowlarr.svg
+      - homepage.href=https://prowlarr.lan.sumitkpandit.in
+      - homepage.description=The Ultimate Indexer Manager
+      - homepage.widget.type=prowlarr
+      - homepage.widget.url=https://prowlarr.lan.sumitkpandit.in
+      - homepage.widget.key=${KEY}
+
+networks:
+  traefik-network:
+    external: true

@@ -27,7 +27,7 @@ services:
       - homepage.name=Beszel
       - homepage.icon=beszel.svg
       - homepage.href=https://beszel.lan.sumitkpandit.in
-      - homepage.description=Server Monitoring
+      - homepage.description=Simple, lightweight server monitoring
 
       # Homepage Widget
       - homepage.widget.type=beszel
