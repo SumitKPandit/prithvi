@@ -1,0 +1,42 @@
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.2.3
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Kolkata
+      - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    volumes:
+      - ./config:/config
+      - /mnt/data/Storage/Downloads/qBittorrent:/downloads #optional
+    ports:
+      - 6881:6881
+      - 6881:6881/udp
+    stop_grace_period: "10s" #optional
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.qbittorrent.rule=Host(`qbittorrent.lan.sumitkpandit.in`)
+      - traefik.http.routers.qbittorrent.entrypoints=websecure
+      - traefik.http.routers.qbittorrent.tls=true
+      - traefik.http.routers.qbittorrent.tls.certresolver=myresolver
+      - traefik.http.services.qbittorrent.loadbalancer.server.port=8080
+      - homepage.group=Application
+      - homepage.name=qBittorrent
+      - homepage.icon=qbittorrent.svg
+      - homepage.href=https://qbittorrent.lan.sumitkpandit.in
+      - homepage.description=WebUI for qBittorrent
+      - homepage.widget.type=qbittorrent
+      - homepage.widget.url=https://qbittorrent.lan.sumitkpandit.in
+      - homepage.widget.enableLeechProgress=true
+      - homepage.widget.enableLeechSize=true
+      - homepage.widget.username=${USERNAME}
+      - homepage.widget.password=${PASSWORD}
+  
+networks:
+  traefik-network:
+    external: true
