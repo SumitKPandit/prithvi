@@ -1,0 +1,41 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:10.11.11
+    container_name: jellyfin
+    user: 1000:1000
+    volumes:
+      - ./config:/config
+      - ./cache:/cache
+      - /mnt/data/Storage/Movies:/movies:ro
+    restart: 'unless-stopped'
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"
+      - "991"
+    networks:
+      - traefik-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.jellyfin.rule=Host(`jellyfin.lan.sumitkpandit.in`)
+      - traefik.http.routers.jellyfin.entrypoints=websecure
+      - traefik.http.routers.jellyfin.tls.certresolver=cloudflare
+      - traefik.http.services.jellyfin.loadbalancer.server.port=8096
+      - homepage.group=Application
+      - homepage.icon=jellyfin.png
+      - homepage.name=Jellyfin
+      - homepage.href=https://jellyfin.lan.sumitkpandit.in
+      - homepage.description=The Free Software Media System
+      - homepage.widget.type=jellyfin
+      - homepage.widget.url=https://jellyfin.lan.sumitkpandit.in
+      - homepage.widget.key=${KEY}
+      - homepage.widget.version=2
+      - homepage.widget.enableBlocks=true
+      - homepage.widget.enableNowPlaying=true
+      - homepage.widget.enableUser=true
+      - homepage.widget.enableMediaControl=true
+      - homepage.widget.showEpisodeNumber=true
+
+networks:
+  traefik-network:
+    external: true
