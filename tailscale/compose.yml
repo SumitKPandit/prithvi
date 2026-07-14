@@ -1,0 +1,26 @@
+services:
+  tailscale:
+    image: tailscale/tailscale:stable
+    container_name: tailscale
+    hostname: prithvi
+    environment:
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+    volumes:
+      - ./data:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    labels:
+      - homepage.group=Infrastructure
+      - homepage.name=Tailscale
+      - homepage.icon=tailscale.svg
+      - homepage.href=https://login.tailscale.com/admin/machines
+      - homepage.description=The best secure connectivity platform for the AI era
+      - homepage.widget.type=tailscale
+      - homepage.widget.deviceid=${DEVICE_ID}
+      - homepage.widget.key=${KEY}
