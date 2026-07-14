@@ -11,7 +11,7 @@ services:
     networks:
       - traefik-network
     labels:
-      - homepage.group=Applications
+      - homepage.group=Application
       - homepage.name=Hermes Agent
       - homepage.icon=hermes-icon.svg
       - homepage.href=https://hermes.lan.sumitkpandit.in
