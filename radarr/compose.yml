@@ -8,7 +8,6 @@ services:
       - TZ=Asia/Kolkata
     volumes:
       - ./config:/config
-      - /mnt/data/Storage/Movies:/movies #optional
       - /mnt/data/Storage:/data #optional
     restart: unless-stopped
     networks:
