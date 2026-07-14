@@ -10,7 +10,7 @@ services:
       - TORRENTING_PORT=6881
     volumes:
       - ./config:/config
-      - /mnt/data/Storage/Downloads/qBittorrent:/downloads #optional
+      - /mnt/data/Storage:/data #optional
     ports:
       - 6881:6881
       - 6881:6881/udp
