@@ -6,6 +6,7 @@ services:
     environment:
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
+      - TS_EXTRA_ARGS=--accept-dns=false --advertise-routes=192.168.0.0/24
     volumes:
       - ./data:/var/lib/tailscale
       - /dev/net/tun:/dev/net/tun
