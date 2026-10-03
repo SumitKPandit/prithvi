@@ -1,3 +1,4 @@
+---
 - name: Base setup
   hosts: g3plus
   become: true

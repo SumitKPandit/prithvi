@@ -1,3 +1,4 @@
+---
 - name: Allow passwordless sudo for the admin user
   ansible.builtin.copy:
     content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL\n"

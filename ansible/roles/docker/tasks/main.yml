@@ -1,3 +1,4 @@
+---
 - name: Get Docker GPG key
   ansible.builtin.get_url:
     url: https://download.docker.com/linux/ubuntu/gpg

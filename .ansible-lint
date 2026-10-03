@@ -1,0 +1,5 @@
+---
+# Keep this minimal; fix findings rather than silencing rules.
+exclude_paths:
+  - .cache
+  - .git
