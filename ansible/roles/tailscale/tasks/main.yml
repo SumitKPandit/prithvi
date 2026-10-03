@@ -47,6 +47,8 @@
       - "--auth-key={{ secrets['tailscale_auth_key'] | default('') }}"
       - "--hostname=g3plus"
       - "--accept-dns=false"
+  # Running at all means the node was not logged in, so it always changes.
+  changed_when: true
   no_log: true
   when:
     - (tailscale_state.stdout | from_json).BackendState != 'Running'

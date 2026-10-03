@@ -80,14 +80,12 @@
       changed_when: false
       register: sshd_t
     - name: Assert SSH hardening is effective
-      vars:
-        eff: "{{ sshd_t.stdout | from_yaml }}"
       ansible.builtin.assert:
         that:
-          - eff['passwordauthentication'] == 'no'
-          - eff['kbdinteractiveauthentication'] == 'no'
-          - eff['permitrootlogin'] == 'no'
-          - eff['pubkeyauthentication'] == 'yes'
+          - "'passwordauthentication no' in sshd_t.stdout"
+          - "'kbdinteractiveauthentication no' in sshd_t.stdout"
+          - "'permitrootlogin no' in sshd_t.stdout"
+          - "'pubkeyauthentication yes' in sshd_t.stdout"
         fail_msg: "Effective sshd config not hardened: {{ sshd_t.stdout }}"
 
     - name: UFW is active

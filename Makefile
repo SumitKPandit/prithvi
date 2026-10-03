@@ -4,7 +4,9 @@
 .PHONY: deps bootstrap check apply verify lint fmt secrets-init secrets-edit apt-upgrade
 
 deps: ## Install Ansible collections and pre-commit hook
-	ansible-galaxy collection install -r ansible/requirements.yml
+	# --force also installs into ~/.ansible/collections when the collections
+	# already exist inside some other Python env, which ansible-lint cannot see.
+	ansible-galaxy collection install -r ansible/requirements.yml --force
 	pre-commit install 2>/dev/null || true
 
 bootstrap: ## One-time setup of a fresh Ubuntu install (SSH key + passwordless sudo)
