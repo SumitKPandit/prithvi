@@ -32,7 +32,7 @@
     architectures: amd64
     signed_by: /etc/apt/keyrings/docker.asc
     state: present
-  notify: Refresh apt cache'
+  notify: Refresh apt cache
 
 - name: Run pending handlers now (apt must refresh before installing packages)
   ansible.builtin.meta: flush_handlers

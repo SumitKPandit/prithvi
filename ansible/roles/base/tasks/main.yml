@@ -1,3 +1,12 @@
+- name: Allow passwordless sudo for the admin user
+  ansible.builtin.copy:
+    content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    dest: "/etc/sudoers.d/90-{{ ansible_user }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
 - name: Install admin tools
   ansible.builtin.apt:
     name: [tmux, lm-sensors, smartmontools, nvme-cli, vainfo, intel-gpu-tools]
