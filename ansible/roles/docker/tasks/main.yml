@@ -32,12 +32,10 @@
     architectures: amd64
     signed_by: /etc/apt/keyrings/docker.asc
     state: present
-  register: docker_repo
+  notify: Refresh apt cache'
 
-- name: Refresh apt cache after repo change
-  ansible.builtin.apt:
-    update_cache: true
-  when: docker_repo is changed
+- name: Run pending handlers now (apt must refresh before installing packages)
+  ansible.builtin.meta: flush_handlers
 
 - name: Install Docker packages
   ansible.builtin.apt:
