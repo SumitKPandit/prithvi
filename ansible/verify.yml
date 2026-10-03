@@ -1,0 +1,155 @@
+---
+# Smoke tests that fail loudly. Run with `make verify` after `make apply`.
+# --check-mode caveat: some checks only make sense after a real apply.
+- name: Verify g3plus
+  hosts: g3plus
+  become: true
+  gather_facts: true
+  tasks:
+    - name: SSH key login works (proven implicitly by this playbook connecting)
+      ansible.builtin.debug:
+        msg: connected as {{ ansible_user }} with the SSH key
+
+    - name: User groups include docker, render and video
+      ansible.builtin.command: id -nG sumit
+      changed_when: false
+      register: user_groups
+    - name: Assert groups
+      ansible.builtin.assert:
+        that:
+          - "'docker' in user_groups.stdout.split()"
+          - "'render' in user_groups.stdout.split()"
+          - "'video' in user_groups.stdout.split()"
+        fail_msg: "sumit is missing from docker/render/video; fix and reconnect SSH to pick up new groups."
+
+    - name: Docker is running and enabled on boot
+      ansible.builtin.systemd:
+        name: docker
+      check_mode: true
+      register: docker_service
+    - name: Assert Docker state
+      ansible.builtin.assert:
+        that:
+          - docker_service.status.ActiveState == 'active'
+          - "'enabled' in docker_service.status.UnitFileState"
+        fail_msg: "Docker is not active+enabled: {{ docker_service.status.ActiveState }}"
+
+    - name: Docker daemon log rotation is configured
+      ansible.builtin.slurp:
+        src: /etc/docker/daemon.json
+      register: docker_conf
+    - name: Assert daemon.json
+      vars:
+        daemon_json: "{{ docker_conf.content | b64decode | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - daemon_json['log-driver'] == 'json-file'
+          - daemon_json['log-opts']['max-size'] == '10m'
+          - daemon_json['log-opts']['max-file'] == '3'
+        fail_msg: "/etc/docker/daemon.json differs: {{ daemon_json }}"
+
+    - name: IP nonlocal-bind sysctl is on (containers survive early boot)
+      ansible.builtin.command: sysctl -n net.ipv4.ip_nonlocal_bind
+      changed_when: false
+      register: nonlocal_bind
+    - name: Assert sysctl
+      ansible.builtin.assert:
+        that: nonlocal_bind.stdout == '1'
+        fail_msg: >-
+          net.ipv4.ip_nonlocal_bind is {{ nonlocal_bind.stdout }},
+          containers may fail to start at boot.
+
+    - name: Tailscale is logged in, online and has the expected IP
+      ansible.builtin.command: tailscale status --json
+      changed_when: false
+      register: ts
+    - name: Assert Tailscale state
+      vars:
+        ts_json: "{{ ts.stdout | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - ts_json.BackendState == 'Running'
+          - ts_json.Self.Online
+          - ts_json.Self.TailscaleIPs[0] == tailscale_ip
+        fail_msg: >-
+          Tailscale problem: state={{ ts_json.BackendState }}
+          online={{ ts_json.Self.Online }} ips={{ ts_json.Self.TailscaleIPs }}
+
+    - name: Effective sshd config (from sshd -T, not just the drop-in file)
+      ansible.builtin.command: sshd -T
+      changed_when: false
+      register: sshd_t
+    - name: Assert SSH hardening is effective
+      vars:
+        eff: "{{ sshd_t.stdout | from_yaml }}"
+      ansible.builtin.assert:
+        that:
+          - eff['passwordauthentication'] == 'no'
+          - eff['kbdinteractiveauthentication'] == 'no'
+          - eff['permitrootlogin'] == 'no'
+          - eff['pubkeyauthentication'] == 'yes'
+        fail_msg: "Effective sshd config not hardened: {{ sshd_t.stdout }}"
+
+    - name: UFW is active
+      ansible.builtin.command: ufw status
+      changed_when: false
+      register: ufw_status
+    - name: Assert UFW
+      ansible.builtin.assert:
+        that:
+          - "'Status: active' in ufw_status.stdout"
+          - "'192.168.0.0/24' in ufw_status.stdout"
+          - "'tailscale0' in ufw_status.stdout"
+        fail_msg: "UFW not active or rules missing: {{ ufw_status.stdout }}"
+
+    - name: Unattended-upgrades reboot settings are effective
+      ansible.builtin.command: apt-config dump Unattended-Upgrade::Automatic-Reboot
+      changed_when: false
+      register: apt_reboot
+    - name: Assert auto-reboot
+      ansible.builtin.assert:
+        that:
+          - "'true' in apt_reboot.stdout"
+        fail_msg: "Automatic-Reboot is not set: {{ apt_reboot.stdout }}"
+
+    - name: Chrony keeps the clock synced
+      ansible.builtin.command: timedatectl show -p NTPSynchronized
+      changed_when: false
+      register: ntp
+    - name: Assert time sync
+      ansible.builtin.assert:
+        that: ntp.stdout == 'NTPSynchronized=yes'
+        fail_msg: "Clock not synced: {{ ntp.stdout }}"
+
+    - name: Smartd is active
+      ansible.builtin.systemd:
+        name: smartd
+      check_mode: true
+      register: smartd_state
+    - name: Assert smartd
+      ansible.builtin.assert:
+        that: smartd_state.status.ActiveState == 'active'
+        fail_msg: "smartd is not active"
+
+    - name: Weekly image-prune timer is enabled
+      ansible.builtin.systemd:
+        name: docker-prune.timer
+      check_mode: true
+      register: prune_timer
+    - name: Assert prune timer
+      ansible.builtin.assert:
+        that:
+          - prune_timer.status.ActiveState == 'active'
+          - "'enabled' in prune_timer.status.UnitFileState"
+        fail_msg: "docker-prune.timer not enabled"
+
+    - name: Root filesystem usage below threshold
+      ansible.builtin.command: df --output=pcent /
+      changed_when: false
+      register: disk
+    - name: Assert disk usage
+      vars:
+        pct: "{{ disk.stdout_lines[-1] | regex_replace('[^0-9]', '') | int }}"
+      ansible.builtin.assert:
+        that: pct < disk_alert_pct
+        fail_msg: "Disk usage {{ pct }}% is at/above the {{ disk_alert_pct }}% alert threshold."

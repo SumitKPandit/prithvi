@@ -1,0 +1,31 @@
+---
+# Addresses of the server (verify.yml asserts the Tailscale IP is real)
+lan_ip: "192.168.0.2"
+lan_cidr: "192.168.0.0/24"
+tailscale_ip: "100.88.141.33"
+
+# Hostnames: private services <name>.home.sumitkpandit.in (Tailscale/LAN only),
+# public web apps <app>.sumitkpandit.in (via the Cloudflare Tunnel)
+domain: "sumitkpandit.in"
+private_host_suffix: "home.sumitkpandit.in"
+
+# Host clock is UTC; containers that care run on IST
+container_timezone: "Asia/Kolkata"
+
+# Data layout. Changing data_root to /mnt/pool later (NAS role) moves media
+# without touching any compose file, because every container mounts from here.
+data_root: "/data"
+appdata_root: "/opt/appdata"
+stacks_root: "/opt/stacks"
+
+# One UID/GID for all media containers (hardlinks need identical ownership)
+media_uid: 2000
+media_gid: 2000
+
+# Disk usage that triggers an alert (percent of /)
+disk_alert_pct: 85
+
+# Feature toggles
+vpn_enabled: false
+nas_enabled: false
+dokploy_enabled: true

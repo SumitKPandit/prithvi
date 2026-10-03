@@ -1,8 +1,15 @@
 ---
-- name: Base setup
+- name: Configure g3plus
   hosts: g3plus
   become: true
+  # Secrets are decrypted on the Mac (SOPS lookup) and only rendered results
+  # (0600 env files) ever reach the server.
+  pre_tasks:
+    - name: Load encrypted secrets into the secrets fact
+      ansible.builtin.set_fact:
+        secrets: "{{ lookup('community.sops.sops', 'secrets.sops.yaml') | from_yaml }}"
   roles:
-    - base
-    - docker
-    - tailscale
+    - { role: base, tags: [base] }
+    - { role: docker, tags: [docker] }
+    - { role: tailscale, tags: [tailscale] }
+    - { role: security, tags: [security, ssh, ufw, updates, monitoring] }

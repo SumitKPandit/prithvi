@@ -1,0 +1,203 @@
+---
+# SSH hardening. The drop-in must sort BEFORE 50-cloud-init.conf (which sets
+# PasswordAuthentication yes): sshd uses the FIRST value it reads for each
+# option and drop-ins load in alphabetical order, so 00- beats 50-.
+# Applying is safe because key login is already proven working; keep a second
+# SSH session open while it runs. Rollback: remove the file and reload sshd.
+- name: Harden SSH (key-only login, no root)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible. Sorts before 50-cloud-init.conf on purpose.
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      PubkeyAuthentication yes
+    dest: /etc/ssh/sshd_config.d/00-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload sshd
+  tags: [ssh, security]
+
+# Firewall. Rules go in BEFORE enabling so the SSH session is never cut off.
+# Docker-published ports bypass UFW entirely; that is handled separately by
+# binding every published port to a specific address (see README).
+# Rollback: sudo ufw disable
+- name: Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+  tags: [ufw, security]
+
+- name: Default deny incoming
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+  tags: [ufw, security]
+
+- name: Allow outgoing traffic
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+  tags: [ufw, security]
+
+- name: Allow SSH from the LAN only
+  community.general.ufw:
+    rule: allow
+    src: "{{ lan_cidr }}"
+    port: "22"
+    proto: tcp
+    comment: SSH from LAN
+  tags: [ufw, security]
+
+- name: Allow everything in on tailscale0 (SSH from the road, private services)
+  community.general.ufw:
+    rule: allow
+    interface: tailscale0
+    direction: in
+  tags: [ufw, security]
+
+- name: Enable UFW with logging
+  community.general.ufw:
+    state: enabled
+    logging: low
+  tags: [ufw, security]
+
+# Automatic security updates. Security-only origin set: Docker and Tailscale
+# packages come from their own repos, which unattended-upgrades does not touch;
+# upgrade those manually (`make apt-upgrade`).
+- name: Ensure unattended-upgrades is installed
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+  tags: [updates, security]
+
+- name: Run apt security checks daily
+  ansible.builtin.copy:
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [updates, security]
+
+- name: Security updates only, reboot at 03:00 IST (21:30 UTC on the UTC host)
+  # WithUsers=true: otherwise a reboot is skipped whenever any SSH session is
+  # open, and the box silently stays unpatched.
+  ansible.builtin.copy:
+    content: |
+      Unattended-Upgrade::Allowed-Origins {
+          "${distro_id}:${distro_codename}-security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "21:30";
+      Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+    dest: /etc/apt/apt.conf.d/52-security-auto-reboot
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [updates, security]
+
+# Time and disk health
+- name: Keep chrony active (default NTP daemon on Ubuntu 26.04, host stays UTC)
+  ansible.builtin.service:
+    name: chrony
+    state: started
+    enabled: true
+  tags: [monitoring, security]
+
+- name: Configure smartd for the NVMe
+  # Alerts go to syslog (journalctl -t smartd) and any failure is picked up
+  # by Uptime Kuma host monitoring. Hours are UTC.
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible. All SMART attributes, short test Wed 03:00 UTC,
+      # long test every 1st Saturday 13:00 UTC.
+      DEVICESCAN -a -s (S/../../3/03|L/../../6/13)
+    dest: /etc/smartd.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart smartd
+  tags: [monitoring, security]
+
+# Disk usage alert through an Uptime Kuma push monitor: the script pushes
+# status=down when usage crosses disk_alert_pct. Installed only once the push
+# token exists in the secrets (see README for the one-time monitor creation).
+- name: Install the disk-usage push script
+  ansible.builtin.copy:
+    content: |
+      #!/bin/sh
+      # Push disk usage of / to a Uptime Kuma push monitor.
+      set -eu
+      . /etc/kuma-push.env
+      PCT=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+      STATUS=up
+      MSG="disk-${PCT}pct"
+      LIMIT={{ disk_alert_pct }}
+      if [ "$PCT" -ge "$LIMIT" ]; then STATUS=down; MSG="disk-${PCT}pct-over-$LIMIT"; fi
+      URL="https://uptime.{{ private_host_suffix }}/api/push/${KUMA_DISK_PUSH_TOKEN}"
+      curl -fsS --max-time 15 "${URL}?status=${STATUS}&msg=${MSG}" >/dev/null
+    dest: /usr/local/bin/disk-usage-push.sh
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [monitoring, security]
+
+- name: Store the push tokens for host scripts (0600, root only)
+  ansible.builtin.copy:
+    content: |
+      KUMA_DISK_PUSH_TOKEN={{ secrets['uptime_kuma_disk_push_token'] | default('') }}
+    dest: /etc/kuma-push.env
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  tags: [monitoring, security]
+
+- name: Timer for the disk check (every 6 hours)
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Disk usage check every 6h, alerts via Uptime Kuma
+
+      [Timer]
+      OnCalendar=*-*-* 00,06,12,18:00:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+    dest: /etc/systemd/system/disk-usage-check.timer
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [monitoring, security]
+
+- name: Service unit for the disk check
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Disk usage check (Uptime Kuma push)
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/disk-usage-push.sh
+    dest: /etc/systemd/system/disk-usage-check.service
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [monitoring, security]
+
+- name: Enable the disk check timer
+  ansible.builtin.systemd:
+    name: disk-usage-check.timer
+    state: started
+    enabled: true
+    daemon_reload: true
+  # --check cannot create unit files (README: check-mode limitations)
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: secrets['uptime_kuma_disk_push_token'] | default('') | length > 0
+  tags: [monitoring, security]

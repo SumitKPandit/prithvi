@@ -3,7 +3,7 @@
   ansible.builtin.get_url:
     url: https://download.docker.com/linux/ubuntu/gpg
     dest: /etc/apt/keyrings/docker.asc
-    mode: '0644'
+    mode: "0644"
 
 - name: Add Docker apt repository
   ansible.builtin.deb822_repository:
@@ -30,14 +30,86 @@
       - docker-compose-plugin
     state: present
 
+- name: Configure the Docker daemon (container log rotation)
+  # No live-restore: Docker documents that it only applies to standalone
+  # containers, not Swarm services, and Dokploy needs Swarm mode.
+  ansible.builtin.copy:
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "3" }
+      }
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/bin/dockerd --validate --config-file=%s
+  notify: Restart Docker
+
 - name: Enable and start Docker
   ansible.builtin.service:
     name: docker
     state: started
     enabled: true
 
+- name: Allow Docker to bind published ports before the LAN/Tailscale IP exists
+  # Containers publish on 192.168.0.2 / 100.88.141.33. At boot Docker may start
+  # before Wi-Fi or tailscaled has the address; without this the port bind
+  # fails and the container stays down (e.g. after the 03:00 auto-reboot).
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_nonlocal_bind
+    value: "1"
+    sysctl_set: true
+    reload: true
+
 - name: Add user to docker group
   ansible.builtin.user:
     name: "{{ ansible_user }}"
     groups: docker
     append: true
+
+- name: Weekly timer to remove dangling Docker images
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Weekly removal of dangling Docker images
+
+      [Timer]
+      OnCalendar=Sun *-*-* 04:30:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+    dest: /etc/systemd/system/docker-prune.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd units
+
+- name: Service unit for the prune timer
+  # Deliberately `image prune` (dangling only), never `system prune`: that
+  # would also delete intentionally stopped containers. Volumes are untouched.
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Remove dangling Docker images
+      Wants=docker.service
+      After=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/docker image prune -f
+    dest: /etc/systemd/system/docker-prune.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd units
+
+- name: Enable the prune timer
+  ansible.builtin.systemd:
+    name: docker-prune.timer
+    state: started
+    enabled: true
+    daemon_reload: true
+  # --check cannot create unit files (README: check-mode limitations)
+  ignore_errors: "{{ ansible_check_mode }}"

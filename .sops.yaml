@@ -1,0 +1,6 @@
+---
+# Encrypt ansible/secrets.sops.yaml with age. Only the public key lives here;
+# the private key is ~/.config/sops/age/keys.txt on your Mac (never committed).
+creation_rules:
+  - path_regex: secrets\.sops\.yaml$
+    age: age106nehhdhzp2030eam3dt09ypaz3teq59s4pqqf776354qcwc3uuq5n30uz
