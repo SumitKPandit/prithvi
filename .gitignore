@@ -1,1 +1,4 @@
 **/.env
+.vault-pass
+*.retry
+.ansible/

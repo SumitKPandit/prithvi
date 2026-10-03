@@ -1,28 +1,14 @@
-# Prithvi
+# Prithvi homeserver
 
-A private server only available over LAN. Access it on [lan.sumitkpandit.in](lan.sumitkpandit.in) when connected to home network.
+Phase 1: Docker + Uptime Kuma only. The full previous setup lives on the `full-draft` branch.
 
-## Domain Name System
+## Run
 
-Following A Records on Cloudflare direct traffic to local network.
+    ansible-galaxy collection install community.docker   # once
+    ansible-playbook -i 192.168.0.2, -K ansible/site.yml
 
-| Name | IP |
-|------|----|
-| lan.sumitkpandit.in | 192.168.0.2 |
-| *.lan.sumitkpandit.in | 192.168.0.2 |
+## Verify
 
-192.168.0.2 is secured on router to point to Prithvi permanently.
-
-## Services
-
-### Services running on bare metal
-
-- OpenSSH
-- Docker
-- Vim
-- Git
-
-### Services running in container
-
-- Adguard Home
-- Traefik
+- Run the playbook twice; the second run must report `changed=0`.
+- Open http://192.168.0.2:3001 — Uptime Kuma — and confirm it still loads after a server reboot.
+- `/mnt/data` does not exist yet; a data drive will be mounted there when Jellyfin/qBittorrent arrive.

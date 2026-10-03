@@ -1,0 +1,103 @@
+---
+- name: Phase 1 | Docker + Uptime Kuma
+  hosts: all
+  remote_user: sumit
+  become: true
+
+  vars:
+    server_user: sumit
+    stacks_dir: /srv/stacks
+    appdata_dir: /srv/appdata
+
+  tasks:
+    - name: Docker | apt prerequisites
+      ansible.builtin.apt:
+        update_cache: true
+        state: present
+        name:
+          - ca-certificates
+          - curl
+          - python3-apt
+          - python3-debian
+
+    - name: Docker | official apt repository (DEB822)
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: deb
+        uris: https://download.docker.com/linux/ubuntu
+        suites: "{{ ansible_distribution_release }}"
+        components: stable
+        architectures: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+        signed_by: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+        enabled: true
+
+    - name: Docker | engine + compose plugin
+      ansible.builtin.apt:
+        update_cache: true
+        state: present
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+
+    - name: Docker | enable and start service
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: User | sumit in docker, render, video groups
+      ansible.builtin.user:
+        name: "{{ server_user }}"
+        groups: [docker, render, video]
+        append: true
+
+    - name: Storage | /srv/appdata owned by sumit
+      ansible.builtin.file:
+        path: "{{ appdata_dir }}"
+        state: directory
+        owner: "{{ server_user }}"
+        group: "{{ server_user }}"
+        mode: "0755"
+
+    - name: Storage | uptime-kuma data directory
+      ansible.builtin.file:
+        path: "{{ appdata_dir }}/uptime-kuma"
+        state: directory
+        owner: "{{ server_user }}"
+        group: "{{ server_user }}"
+        mode: "0755"
+
+    - name: Kuma | stack directory
+      ansible.builtin.file:
+        path: "{{ stacks_dir }}/uptime-kuma"
+        state: directory
+        owner: "{{ server_user }}"
+        group: "{{ server_user }}"
+        mode: "0755"
+
+    - name: Kuma | compose file
+      ansible.builtin.copy:
+        dest: "{{ stacks_dir }}/uptime-kuma/compose.yml"
+        owner: "{{ server_user }}"
+        group: "{{ server_user }}"
+        mode: "0644"
+        content: |
+          services:
+            uptime-kuma:
+              image: louislam/uptime-kuma:2.5.5
+              container_name: uptime-kuma
+              restart: unless-stopped
+              ports:
+                - "192.168.0.2:3001:3001"
+              volumes:
+                - /srv/appdata/uptime-kuma:/app/data
+
+    - name: Kuma | up
+      community.docker.docker_compose_v2:
+        project_src: "{{ stacks_dir }}/uptime-kuma"
+        state: present
+        pull: missing
