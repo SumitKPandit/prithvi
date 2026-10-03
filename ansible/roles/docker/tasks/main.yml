@@ -1,26 +1,8 @@
-- name: Install ca-certificates
-  ansible.builtin.apt:
-    name: ca-certificates
-    state: present
-    update_cache: true
-    cache_valid_time: 3600
-
-- name: Create keyring directory
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: '0755'
-
 - name: Get Docker GPG key
   ansible.builtin.get_url:
     url: https://download.docker.com/linux/ubuntu/gpg
     dest: /etc/apt/keyrings/docker.asc
     mode: '0644'
-
-- name: Install python3-debian (needed by deb822_repository)
-  ansible.builtin.apt:
-    name: python3-debian
-    state: present
 
 - name: Add Docker apt repository
   ansible.builtin.deb822_repository:

@@ -19,3 +19,21 @@
     name: "{{ ansible_user }}"
     groups: [video, render]
     append: true
+
+- name: Install ca-certificates
+  ansible.builtin.apt:
+    name: ca-certificates
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Install python3-debian (needed by deb822_repository)
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
