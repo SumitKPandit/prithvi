@@ -8,3 +8,8 @@
         state: present
         update_cache: true
         cache_valid_time: 3600
+    - name: Add user to groups
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: [video, render]
+        append: true
