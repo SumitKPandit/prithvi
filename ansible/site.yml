@@ -5,12 +5,16 @@
   # Secrets are decrypted on the Mac (SOPS lookup) and only rendered results
   # (0600 env files) ever reach the server.
   pre_tasks:
+    # "always": without it, any --tags run would skip this untagged task,
+    # leaving `secrets` undefined (silently empty via the default() filters).
     - name: Load encrypted secrets into the secrets fact
       ansible.builtin.set_fact:
         secrets: "{{ lookup('community.sops.sops', 'secrets.sops.yaml') | from_yaml }}"
+      tags: [always]
   roles:
     - { role: base, tags: [base] }
     - { role: docker, tags: [docker] }
     - { role: tailscale, tags: [tailscale] }
     - { role: security, tags: [security, ssh, ufw, updates, monitoring] }
     - { role: storage, tags: [storage] }
+    - { role: media, tags: [media] }

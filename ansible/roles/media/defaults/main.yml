@@ -1,0 +1,39 @@
+---
+# Image pins: bump a tag, run `make apply`. Verify current tags before
+# upgrading (see README "Update an image version").
+qbittorrent_image: "linuxserver/qbittorrent:5.2.4"
+gluetun_image: "qmcgaw/gluetun:v3.41.3"
+sonarr_image: "linuxserver/sonarr:4.0.20"
+radarr_image: "linuxserver/radarr:6.4.4"
+prowlarr_image: "linuxserver/prowlarr:2.6.5"
+bazarr_image: "linuxserver/bazarr:1.6.2"
+jellyseerr_image: "fallenbagel/jellyseerr:2.7.3"
+flaresolverr_image: "flaresolverr/flaresolverr:v3.5.2"
+jellyfin_image: "linuxserver/jellyfin:12.1ubu2604-ls51"
+
+# Internal ports (published only on 127.0.0.1; Caddy is the real entrypoint)
+prowlarr_port: 9696
+sonarr_port: 8989
+radarr_port: 7878
+bazarr_port: 6767
+jellyseerr_port: 5055
+flaresolverr_port: 8191
+jellyfin_port: 8096
+qbittorrent_webui_port: 8080
+qbittorrent_torrent_port: 6881
+
+# Memory limits keep one runaway service from starving the 16 GB box
+media_mem_limits:
+  qbittorrent: 1g
+  gluetun: 256m
+  sonarr: 1g
+  radarr: 1g
+  prowlarr: 512m
+  bazarr: 768m
+  jellyseerr: 512m
+  flaresolverr: 512m
+  jellyfin: 4g
+
+# Jellyfin has no global stream cap; this per-user limit is the best available
+# (MaxActiveSessions in UserPolicy, per upstream source).
+jellyfin_max_sessions: 2

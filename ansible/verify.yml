@@ -151,3 +151,42 @@
       ansible.builtin.assert:
         that: pct < disk_alert_pct
         fail_msg: "Disk usage {{ pct }}% is at/above the {{ disk_alert_pct }}% alert threshold."
+
+    # Media stack
+    - name: All media containers are running
+      ansible.builtin.command: docker ps --format "{{ '{{.Names}} {{.Status}}' }}"
+      changed_when: false
+      register: containers
+    - name: Assert media containers
+      vars:
+        expected: [qbittorrent, sonarr, radarr, prowlarr, bazarr, jellyseerr, flaresolverr, jellyfin]
+        running: "{{ containers.stdout_lines | map('regex_replace', ' .*', '') | list }}"
+      ansible.builtin.assert:
+        that: expected | difference(running) | length == 0
+        fail_msg: >-
+          Missing containers: {{ expected | difference(running) }}.
+          docker ps: {{ containers.stdout }}
+
+    - name: Every container has a restart policy
+      # Anything without one stays down after a reboot.
+      ansible.builtin.command: docker ps -a --format {{ '{{.Names}}' }}
+      changed_when: false
+      register: all_containers
+    - name: Assert restart policies
+      ansible.builtin.command: "docker inspect -f {{ '{{.HostConfig.RestartPolicy.Name}}' }} {{ item }}"
+      changed_when: false
+      loop: "{{ all_containers.stdout_lines }}"
+      register: restart_policies
+    - name: Assert each policy
+      ansible.builtin.assert:
+        that: "{{ item.stdout != 'no' }}"
+        fail_msg: "Container {{ item.item }} has restart policy '{{ item.stdout }}'; expected unless-stopped/always."
+      loop: "{{ restart_policies.results }}"
+      loop_control: { label: "{{ item.item }}" }
+
+    - name: Jellyfin can see the GPU render device
+      ansible.builtin.command: docker exec jellyfin test -c /dev/dri/renderD128
+      changed_when: false
+    - name: Report Quick Sync check command
+      ansible.builtin.debug:
+        msg: "Confirm active hardware transcoding live with: ssh g3plus intel_gpu_top (while a stream transcodes)"

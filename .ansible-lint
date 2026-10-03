@@ -3,3 +3,7 @@
 exclude_paths:
   - .cache
   - .git
+skip_list:
+  # Role-default prefixes (media_qbittorrent_image) add noise without value
+  # in a single-host repo; the names are already unambiguous.
+  - var-naming[no-role-prefix]
