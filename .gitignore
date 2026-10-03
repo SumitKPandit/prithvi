@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Ansible runtime files
+*.retry
+.ansible/
+
+# Secrets: never commit these
+.env
+.env.*
+!.env.example
+*.agekey
+keys.txt
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+.vault_pass*
