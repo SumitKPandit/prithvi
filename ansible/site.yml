@@ -1,15 +1,6 @@
 - name: Base setup
   hosts: g3plus
   become: true
-  tasks:
-    - name: Install admin tools
-      ansible.builtin.apt:
-        name: [tmux, lm-sensors, smartmontools, nvme-cli, vainfo, intel-gpu-tools]
-        state: present
-        update_cache: true
-        cache_valid_time: 3600
-    - name: Add user to groups
-      ansible.builtin.user:
-        name: "{{ ansible_user }}"
-        groups: [video, render]
-        append: true
+  roles:
+    - base
+    - docker
