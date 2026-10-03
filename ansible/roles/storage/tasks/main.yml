@@ -58,3 +58,12 @@
     group: root
     mode: "0755"
   tags: [storage]
+
+- name: Create the shared docker network for private services
+  # Caddy, the dashboards and monitoring all attach here, so reverse-proxying
+  # by container name works across stacks.
+  community.docker.docker_network:
+    name: web
+    driver: bridge
+    state: present
+  tags: [storage]

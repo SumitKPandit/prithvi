@@ -1,0 +1,52 @@
+---
+- name: Create dashboard appdata directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: media
+    group: media
+    mode: "0775"
+  loop:
+    - "{{ appdata_root }}/dockge"
+    - "{{ appdata_root }}/uptime-kuma"
+    - "{{ appdata_root }}/homepage/config"
+  tags: [dashboard]
+
+- name: Create the dashboard stack directory
+  ansible.builtin.file:
+    path: "{{ stacks_root }}/dashboard"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [dashboard]
+
+- name: Render the Homepage config
+  # Rendered from the same private_services list as Caddy and DNS, so the
+  # dashboard cannot drift from what is actually deployed.
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: "{{ appdata_root }}/homepage/config/{{ item | basename | splitext | first }}.yaml"
+    owner: media
+    group: media
+    mode: "0644"
+  loop:
+    - homepage-settings.j2
+    - homepage-services.j2
+  tags: [dashboard]
+
+- name: Render the dashboard compose file
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ stacks_root }}/dashboard/compose.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [dashboard]
+
+- name: Deploy the dashboard stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ stacks_root }}/dashboard"
+    state: present
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [dashboard]

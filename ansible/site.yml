@@ -18,3 +18,5 @@
     - { role: security, tags: [security, ssh, ufw, updates, monitoring] }
     - { role: storage, tags: [storage] }
     - { role: media, tags: [media] }
+    - { role: proxy, tags: [proxy, caddy, dns] }
+    - { role: dashboard, tags: [dashboard] }

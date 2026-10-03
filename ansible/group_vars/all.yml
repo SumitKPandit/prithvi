@@ -29,3 +29,22 @@ disk_alert_pct: 85
 vpn_enabled: false
 nas_enabled: false
 dokploy_enabled: true
+
+# Private services: one list drives Caddy routes, DNS records and the
+# Homepage dashboard, so they can never drift apart.
+# host/port = container name + port on the shared 'web' network.
+private_services:
+  - { name: jellyfin, host: jellyfin, port: 8096, desc: Media server }
+  - { name: sonarr, host: sonarr, port: 8989, desc: TV automation }
+  - { name: radarr, host: radarr, port: 7878, desc: Movie automation }
+  - { name: prowlarr, host: prowlarr, port: 9696, desc: Indexer management }
+  - { name: bazarr, host: bazarr, port: 6767, desc: Subtitles }
+  - { name: jellyseerr, host: jellyseerr, port: 5055, desc: Requests }
+  - { name: qbittorrent, host: qbittorrent, port: 8080, desc: Downloads }
+  - { name: uptime, host: uptime-kuma, port: 3001, desc: Monitoring }
+  - { name: dockge, host: dockge, port: 5001, desc: Compose stacks }
+  - { name: homepage, host: homepage, port: 3000, desc: Dashboard }
+
+# Email for Let's Encrypt certificate notices (optional but recommended).
+# TODO: set your email address.
+acme_email: ""

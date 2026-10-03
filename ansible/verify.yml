@@ -5,6 +5,11 @@
   hosts: g3plus
   become: true
   gather_facts: true
+  pre_tasks:
+    - name: Load encrypted secrets into the secrets fact
+      ansible.builtin.set_fact:
+        secrets: "{{ lookup('community.sops.sops', 'secrets.sops.yaml') | from_yaml }}"
+      tags: [always]
   tasks:
     - name: SSH key login works (proven implicitly by this playbook connecting)
       ansible.builtin.debug:
@@ -190,3 +195,37 @@
     - name: Report Quick Sync check command
       ansible.builtin.debug:
         msg: "Confirm active hardware transcoding live with: ssh g3plus intel_gpu_top (while a stream transcodes)"
+
+    # Proxy + dashboards. HTTPS checks use the Tailscale IP like a real
+    # client would; real Let's Encrypt certs validate cleanly once the
+    # Cloudflare token is set (until then DNS-01 records do not exist).
+    - name: Proxy and dashboard containers are running
+      vars:
+        expected: [caddy, homepage, dockge, uptime-kuma]
+        running: "{{ containers.stdout_lines | map('regex_replace', ' .*', '') | list }}"
+      ansible.builtin.assert:
+        that: expected | difference(running) | length == 0
+        fail_msg: >-
+          Missing containers: {{ expected | difference(running) }}.
+          docker ps: {{ containers.stdout }}
+      when: not ansible_check_mode
+
+    - name: Key endpoints answer over HTTPS on the Tailscale IP
+      # Only meaningful once the Cloudflare token exists (DNS records + real
+      # certificates). Before that, use the IP:443 curl in the README.
+      vars:
+        # 'hosts' is a reserved word in Ansible; endpoint_hosts is not.
+        suffix: ".{{ private_host_suffix }}"
+      ansible.builtin.uri:
+        url: "https://{{ item }}{{ suffix }}/"
+        # Real certificates validate once the token is set; before that the
+        # internal CA would fail the check, so disable validation then.
+        validate_certs: "{{ (secrets['cloudflare_api_token'] | default('')) | length > 0 }}"
+        status_code: [200, 301, 302, 401, 404]
+      loop: "{{ private_services | map(attribute='name') | list }}"
+      register: endpoint_check
+      failed_when: endpoint_check.status not in [200, 301, 302, 401, 404]
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - secrets['cloudflare_api_token'] | default('') | length > 0

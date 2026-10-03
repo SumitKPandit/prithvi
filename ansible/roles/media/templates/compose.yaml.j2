@@ -198,3 +198,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+
+# One shared network with Caddy and the dashboards (created by the storage
+# role); reverse-proxying by container name works across stacks.
+networks:
+  default:
+    name: web
+    external: true

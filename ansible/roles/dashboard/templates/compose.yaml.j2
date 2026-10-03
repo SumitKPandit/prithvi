@@ -1,0 +1,43 @@
+{#- Homepage, Dockge, Uptime Kuma. All behind Caddy, never port-published. -#}
+services:
+  homepage:
+    image: {{ homepage_image }}
+    container_name: homepage
+    environment:
+      - PUID={{ media_uid }}
+      - PGID={{ media_gid }}
+      - TZ={{ container_timezone }}
+    volumes:
+      - {{ appdata_root }}/homepage/config:/app/config
+    restart: unless-stopped
+    mem_limit: 256m
+
+  dockge:
+    image: {{ dockge_image }}
+    container_name: dockge
+    environment:
+      - DOCKGE_STACKS_DIR=/opt/stacks
+      - TZ={{ container_timezone }}
+    volumes:
+      # Ansible is the source of truth: edits to Ansible-managed stacks made
+      # in Dockge's UI are overwritten on the next `make apply` (README).
+      - /var/run/docker.sock:/var/run/docker.sock
+      - {{ appdata_root }}/dockge:/app/data
+      - {{ stacks_root }}:/opt/stacks:ro
+    restart: unless-stopped
+    mem_limit: 256m
+
+  uptime-kuma:
+    image: {{ uptime_kuma_image }}
+    container_name: uptime-kuma
+    environment:
+      - TZ={{ container_timezone }}
+    volumes:
+      - {{ appdata_root }}/uptime-kuma:/app/data
+    restart: unless-stopped
+    mem_limit: 512m
+
+networks:
+  default:
+    name: web
+    external: true

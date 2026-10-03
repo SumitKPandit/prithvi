@@ -1,0 +1,5 @@
+---
+# Pinned Caddy version for both builder and runtime image tags.
+caddy_version: "2.11.6"
+# DNS-01 is only possible with a Cloudflare token in the secrets.
+cf_dns01: "{{ secrets['cloudflare_api_token'] | default('') | length > 0 }}"
