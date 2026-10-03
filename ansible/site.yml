@@ -13,3 +13,4 @@
     - { role: docker, tags: [docker] }
     - { role: tailscale, tags: [tailscale] }
     - { role: security, tags: [security, ssh, ufw, updates, monitoring] }
+    - { role: storage, tags: [storage] }
