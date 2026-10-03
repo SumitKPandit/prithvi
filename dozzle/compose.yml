@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./data:/data
+      - /srv/appdata/dozzle/data:/data
     networks:
       - traefik-network
     labels:

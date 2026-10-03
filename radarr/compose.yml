@@ -7,7 +7,7 @@ services:
       - PGID=1000
       - TZ=Asia/Kolkata
     volumes:
-      - ./config:/config
+      - /srv/appdata/radarr/config:/config
       - /mnt/data/Storage:/data #optional
     restart: unless-stopped
     networks:

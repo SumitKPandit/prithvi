@@ -1,0 +1,41 @@
+---
+- name: Base | apt update + upgrade basics
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Base | install packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+
+- name: Base | set hostname
+  ansible.builtin.hostname:
+    name: g3plus
+
+- name: Base | ensure render/video groups exist
+  ansible.builtin.group:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - render
+    - video
+
+- name: Base | sumit in render, video, docker groups
+  ansible.builtin.user:
+    name: "{{ server_user }}"
+    groups: render,video
+    append: true
+  # docker group is added by docker role; append keeps existing.
+
+- name: Base | Ghostty terminfo hint
+  ansible.builtin.copy:
+    dest: /etc/profile.d/ghostty-term.sh
+    mode: "0644"
+    content: |
+      # Ghostty over SSH: server lacks xterm-ghostty terminfo.
+      # Either run `export TERM=xterm-256color`, or install it once from your Mac:
+      #   infocmp -x xterm-ghostty | ssh {{ server_user }}@<ip> -- tic -x -
+      if [ "$TERM" = "xterm-ghostty" ] && ! infocmp xterm-ghostty >/dev/null 2>&1; then
+        export TERM=xterm-256color
+      fi

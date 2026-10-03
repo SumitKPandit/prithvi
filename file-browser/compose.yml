@@ -5,8 +5,8 @@ services:
     restart: unless-stopped
 
     volumes:
-      - ./database:/database
-      - ./config:/config
+      - /srv/appdata/file-browser/database:/database
+      - /srv/appdata/file-browser/config:/config
       - /mnt/data:/srv
 
     networks:

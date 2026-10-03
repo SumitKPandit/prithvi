@@ -1,0 +1,40 @@
+---
+- name: Storage | stacks + appdata dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0755"
+  loop:
+    - "{{ stacks_dir }}"
+    - "{{ appdata_dir }}"
+
+- name: Storage | per-stack appdata dirs
+  ansible.builtin.file:
+    path: "{{ appdata_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0755"
+  loop: "{{ stacks }}"
+
+- name: Storage | /mnt/data on NVMe until NAS pool exists
+  ansible.builtin.file:
+    path: "{{ media_root }}"
+    state: directory
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0755"
+
+- name: Storage | guard — fail fast if pool mount required but missing
+  ansible.builtin.command: mountpoint -q {{ media_root }}
+  register: mnt_guard
+  failed_when: false
+  changed_when: false
+  when: mnt_data_require_mount | bool
+
+- name: Storage | abort when media mount missing
+  ansible.builtin.fail:
+    msg: "{{ media_root }} is not a mountpoint. Refusing to start stacks so media is not silently written to the NVMe."
+  when: mnt_data_require_mount | bool and mnt_guard.rc != 0

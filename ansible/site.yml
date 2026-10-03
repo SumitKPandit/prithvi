@@ -1,0 +1,13 @@
+---
+- name: Prithvi home server
+  hosts: homeserver
+  become: true
+  roles:
+    - base
+    - ssh
+    - firewall
+    - upgrades
+    - docker
+    - tailscale
+    - storage
+    - stacks

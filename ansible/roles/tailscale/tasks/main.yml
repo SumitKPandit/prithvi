@@ -1,0 +1,42 @@
+---
+- name: Tailscale | apt repo (DEB822)
+  ansible.builtin.deb822_repository:
+    name: tailscale
+    types: deb
+    uris: https://pkgs.tailscale.com/stable/ubuntu
+    suites: "{{ ansible_distribution_release }}"
+    components: main
+    signed_by: https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg
+    state: present
+    enabled: true
+
+- name: Tailscale | install
+  ansible.builtin.apt:
+    update_cache: true
+    name: tailscale
+    state: present
+
+- name: Tailscale | enable daemon
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+- name: Tailscale | status (no change)
+  ansible.builtin.command: tailscale status
+  register: ts_status
+  failed_when: false
+  changed_when: false
+
+- name: Tailscale | up with tagged reusable auth key
+  ansible.builtin.command: >-
+    tailscale up
+    --auth-key={{ vault_tailscale_auth_key }}
+    --advertise-routes={{ tailscale_advertise_routes }}
+    --accept-dns={{ 'true' if tailscale_accept_dns else 'false' }}
+  when: >-
+    vault_tailscale_auth_key is defined
+    and 'CHANGEME' not in vault_tailscale_auth_key
+    and ('Logged out' in (ts_status.stdout | default('')) or ts_status.rc != 0)
+  changed_when: true
+  no_log: true

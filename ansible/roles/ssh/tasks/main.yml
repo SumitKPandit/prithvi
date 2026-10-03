@@ -1,0 +1,25 @@
+---
+- name: SSH | authorized key for server user
+  ansible.builtin.authorized_key:
+    user: "{{ server_user }}"
+    key: "{{ vault_ssh_public_key }}"
+    state: present
+    exclusive: true
+
+- name: SSH | harden sshd (key-only)
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/60-prithvi.conf
+    mode: "0600"
+    content: |
+      PasswordAuthentication no
+      ChallengeResponseAuthentication no
+      PubkeyAuthentication yes
+      PermitRootLogin no
+      X11Forwarding no
+  notify: Restart sshd
+
+- name: SSH | ensure sshd enabled
+  ansible.builtin.systemd:
+    name: ssh
+    enabled: true
+    state: started

@@ -1,13 +1,13 @@
 services:
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
+    image: lscr.io/linuxserver/prowlarr:2.5.2
     container_name: prowlarr
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Kolkata
     volumes:
-      - ./config:/config
+      - /srv/appdata/prowlarr/config:/config
     restart: unless-stopped
     networks:
       - traefik-network

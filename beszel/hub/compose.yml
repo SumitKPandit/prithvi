@@ -1,6 +1,6 @@
 services:
   beszel:
-    image: henrygd/beszel:0.18.7
+    image: henrygd/beszel:0.20.0
     container_name: beszel
     restart: unless-stopped
 
@@ -8,7 +8,7 @@ services:
       APP_URL: https://beszel.lan.sumitkpandit.in
 
     volumes:
-      - ./data:/beszel_data
+      - /srv/appdata/beszel-hub/data:/beszel_data
 
     networks:
       - traefik-network

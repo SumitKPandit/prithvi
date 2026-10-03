@@ -1,0 +1,41 @@
+---
+- name: Docker | official apt repo (DEB822, 26.04-safe)
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: deb
+    uris: https://download.docker.com/linux/ubuntu
+    suites: "{{ ansible_distribution_release }}"
+    components: stable
+    architectures: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+    signed_by: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+    enabled: true
+
+- name: Docker | install engine + compose plugin
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Docker | sumit in docker group
+  ansible.builtin.user:
+    name: "{{ server_user }}"
+    groups: docker
+    append: true
+
+- name: Docker | enable service
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Docker | traefik-network exists (CLI, no SDK needed)
+  ansible.builtin.command: docker network create {{ docker_network }}
+  register: net_create
+  failed_when: net_create.rc != 0 and 'already exists' not in (net_create.stderr | default(''))
+  changed_when: net_create.rc == 0

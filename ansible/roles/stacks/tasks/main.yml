@@ -1,0 +1,102 @@
+---
+- name: Stacks | per-stack dirs under /srv/stacks (compose lives here, never --delete appdata)
+  ansible.builtin.file:
+    path: "{{ stacks_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0755"
+  loop: "{{ stacks }}"
+
+- name: Stacks | sync compose files (source of truth is this repo)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../{{ item.src }}"
+    dest: "{{ stacks_dir }}/{{ item.dest }}/compose.yml"
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0644"
+  loop:
+    - { src: adguard-home/compose.yml, dest: adguard-home }
+    - { src: beszel/agent/compose.yml, dest: beszel-agent }
+    - { src: beszel/hub/compose.yml, dest: beszel-hub }
+    - { src: dozzle/compose.yml, dest: dozzle }
+    - { src: file-browser/compose.yml, dest: file-browser }
+    - { src: homepage/compose.yml, dest: homepage }
+    - { src: jellyfin/compose.yml, dest: jellyfin }
+    - { src: prowlarr/compose.yml, dest: prowlarr }
+    - { src: qbittorrent/compose.yml, dest: qbittorrent }
+    - { src: radarr/compose.yml, dest: radarr }
+    - { src: traefik/compose.yml, dest: traefik }
+    - { src: uptime-kuma/compose.yml, dest: uptime-kuma }
+  notify: Restart stacks
+
+- name: Stacks | static config dirs (repo-managed, mounted relative from compose)
+  ansible.builtin.file:
+    path: "{{ stacks_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0755"
+  loop:
+    - traefik/config
+    - homepage/config
+
+- name: Stacks | sync static config (traefik.yml, homepage config)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../{{ item.src }}"
+    dest: "{{ stacks_dir }}/{{ item.dest }}"
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0644"
+  loop:
+    - { src: traefik/config/traefik.yml, dest: traefik/config/traefik.yml }
+    - { src: homepage/config/bookmarks.yaml, dest: homepage/config/bookmarks.yaml }
+    - { src: homepage/config/docker.yaml, dest: homepage/config/docker.yaml }
+    - { src: homepage/config/services.yaml, dest: homepage/config/services.yaml }
+    - { src: homepage/config/settings.yaml, dest: homepage/config/settings.yaml }
+    - { src: homepage/config/widgets.yaml, dest: homepage/config/widgets.yaml }
+  notify: Restart stacks
+
+- name: Stacks | render .env files from vault (never committed)
+  ansible.builtin.template:
+    src: "env-{{ item }}.j2"
+    dest: "{{ stacks_dir }}/{{ item }}/.env"
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0600"
+  loop:
+    - adguard-home
+    - beszel-agent
+    - beszel-hub
+    - file-browser
+    - jellyfin
+    - prowlarr
+    - qbittorrent
+    - radarr
+    - traefik
+  notify: Restart stacks
+
+- name: Stacks | traefik certs dir + perms (acme.json must be 600)
+  ansible.builtin.file:
+    path: "{{ appdata_dir }}/traefik/certs"
+    state: directory
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0755"
+
+- name: Stacks | ensure acme.json exists with 600
+  ansible.builtin.file:
+    path: "{{ appdata_dir }}/traefik/certs/cloudflare-acme.json"
+    state: touch
+    owner: "{{ server_user }}"
+    group: "{{ server_user }}"
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+
+- name: Stacks | compose up
+  community.docker.docker_compose_v2:
+    project_src: "{{ stacks_dir }}/{{ item }}"
+    state: present
+    pull: missing
+  loop: "{{ stacks }}"

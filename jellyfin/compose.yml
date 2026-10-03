@@ -4,15 +4,15 @@ services:
     container_name: jellyfin
     user: 1000:1000
     volumes:
-      - ./config:/config
-      - ./cache:/cache
+      - /srv/appdata/jellyfin/config:/config
+      - /srv/appdata/jellyfin/cache:/cache
       - /mnt/data/Storage/Movies:/movies:ro
     restart: 'unless-stopped'
     devices:
       - /dev/dri:/dev/dri
     group_add:
-      - "44"
-      - "991"
+      - video
+      - render
     networks:
       - traefik-network
     labels:

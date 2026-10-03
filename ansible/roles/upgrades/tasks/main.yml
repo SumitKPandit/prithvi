@@ -1,0 +1,16 @@
+---
+- name: Upgrades | configure unattended-upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/51-prithvi-unattended
+    mode: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      Unattended-Upgrade::Automatic-Reboot "false";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+- name: Upgrades | enable service
+  ansible.builtin.systemd:
+    name: unattended-upgrades
+    enabled: true
+    state: started

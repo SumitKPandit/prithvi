@@ -1,0 +1,65 @@
+# Non-secret defaults. Secrets live in group_vars/all/vault.yml (ansible-vault).
+server_user: sumit
+server_uid: 1000
+server_gid: 1000
+timezone_system: Etc/UTC
+timezone_containers: Asia/Kolkata
+
+domain_root: lan.sumitkpandit.in
+acme_email: panditsumitkumar@gmail.com
+
+stacks_dir: /srv/stacks
+appdata_dir: /srv/appdata
+media_root: /mnt/data
+
+# Until the mergerfs/NAS pool exists, Ansible creates /mnt/data on the NVMe.
+# Set to true once the pool should be mounted: stacks will fail fast instead
+# of silently writing media to the NVMe if the mount is missing.
+mnt_data_require_mount: false
+
+docker_network: traefik-network
+
+# Tailscale (host package, not a container)
+tailscale_advertise_routes: 192.168.0.0/24
+tailscale_accept_dns: false
+tailscale_login_server: ""
+
+# Firewall: LAN + Tailscale must always keep SSH reachable.
+lan_subnet: 192.168.0.0/24
+tailscale_range: 100.64.0.0/10
+
+base_packages:
+  - vim
+  - git
+  - curl
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - htop
+  - tmux
+  - stress-ng
+  - memtester
+  - lm-sensors
+  - smartmontools
+  - nvme-cli
+  - vainfo
+  - intel-gpu-tools
+  - ufw
+  - unattended-upgrades
+  - ncurses-bin
+  - python3-apt
+
+# Stacks deployed from this repo (top-level dirs, minus tailscale which is host).
+stacks:
+  - adguard-home
+  - beszel-agent
+  - beszel-hub
+  - dozzle
+  - file-browser
+  - homepage
+  - jellyfin
+  - prowlarr
+  - qbittorrent
+  - radarr
+  - traefik
+  - uptime-kuma
