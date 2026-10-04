@@ -100,7 +100,8 @@
       -v /var/run/docker.sock:/var/run/docker.sock:ro \
       traefik:{{ dokploy_traefik_image_tag }}
   when: >
-    '"HostPort":"80"' in traefik_ports.stdout
+    traefik_ports.rc != 0
+    or '"HostPort":"80"' in traefik_ports.stdout
     or '"HostPort":"443"' in traefik_ports.stdout
   changed_when: true
   tags: [dokploy]

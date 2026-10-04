@@ -1,0 +1,79 @@
+---
+# Teardown playbook: removes all deployed components in reverse dependency order.
+# Refuses to run unless -e confirm_teardown=yes is passed.
+# Data deletion (/data, /opt/appdata, database volumes) requires -e teardown_data=yes.
+# Finishes with a reboot to clear in-memory state (Docker bridges, iptables rules).
+
+- name: Confirm teardown
+  ansible.builtin.command: echo "Proceeding with teardown of all Ansible-managed services"
+  register: confirm
+  changed_when: false
+  failed_when: confirm.rc != 0
+
+- name: Gather the user data decision
+  ansible.builtin.set_fact:
+    teardown_data: "{{ teardown_data | default('no') | bool }}"
+
+- name: Remove backup role artifacts
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: remove
+
+- name: Remove tunnel role artifacts
+  ansible.builtin.include_role:
+    name: tunnel
+    tasks_from: remove
+
+- name: Remove dokploy role artifacts
+  ansible.builtin.include_role:
+    name: dokploy
+    tasks_from: remove
+  when: not teardown_data | bool or not (item is defined)
+
+- name: Remove hermes role artifacts
+  ansible.builtin.include_role:
+    name: hermes
+    tasks_from: remove
+
+- name: Remove dashboard role artifacts
+  ansible.builtin.include_role:
+    name: dashboard
+    tasks_from: remove
+
+- name: Remove media role artifacts
+  ansible.builtin.include_role:
+    name: media
+    tasks_from: remove
+  when: not teardown_data | bool or not (item is defined)
+
+- name: Remove proxy role artifacts
+  ansible.builtin.include_role:
+    name: proxy
+    tasks_from: remove
+
+- name: Remove docker role artifacts
+  ansible.builtin.include_role:
+    name: docker
+    tasks_from: remove
+
+- name: Remove tailscale role artifacts
+  ansible.builtin.include_role:
+    name: tailscale
+    tasks_from: remove
+
+- name: Remove security role artifacts
+  ansible.builtin.include_role:
+    name: security
+    tasks_from: remove
+
+- name: Remove base role artifacts (last, before reboot)
+  ansible.builtin.include_role:
+    name: base
+    tasks_from: remove
+
+- name: Final reboot to clear in-memory state
+  # This clears Docker bridges, iptables rules, and any other runtime state.
+  # After the reboot, only SSH (key-only) and the sudoers file remain.
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: confirm is changed

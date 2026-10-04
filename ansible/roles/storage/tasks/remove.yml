@@ -1,0 +1,36 @@
+---
+# Remove the storage role completely.
+# Idempotent: running twice is a no-op.
+# Removes: the media group, data directories (NOT the data itself when
+# running via teardown, since /data is user data), and the shared docker
+# network (only if no other stack uses it).
+
+- name: Remove the docker web network (shared, remove only if empty)
+  community.docker.docker_network:
+    name: web
+    state: absent
+  failed_when: false
+
+- name: Remove the media group
+  ansible.builtin.group:
+    name: media
+    state: absent
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Remove the media user
+  ansible.builtin.user:
+    name: media
+    state: absent
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Remove appdata root if empty
+  ansible.builtin.file:
+    path: "{{ appdata_root }}"
+    state: absent
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Remove stacks root if empty
+  ansible.builtin.file:
+    path: "{{ stacks_root }}"
+    state: absent
+  ignore_errors: "{{ ansible_check_mode }}"

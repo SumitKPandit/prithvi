@@ -238,6 +238,29 @@
         - not ansible_check_mode
         - secrets['cloudflare_api_token'] | default('') | length > 0
 
+    # VPN egress check (when enabled). Verifies that gluetun's external IP
+    # differs from the server's LAN IP, confirming traffic leaves via the
+    # VPN tunnel rather than the direct ISP path.
+    - name: VPN egress IP is reachable
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - gluetun
+          - curl
+          - -s
+          - --max-time
+          - 10
+          - https://ifconfig.me
+      register: gluetun_ip
+      changed_when: false
+      when: vpn_enabled | bool
+    - name: VPN egress IP is not the LAN IP
+      ansible.builtin.assert:
+        that: gluetun_ip.stdout != '192.168.0.2'
+        fail_msg: "VPN egress IP matches the LAN IP; VPN may not be working"
+      when: vpn_enabled | bool
+
     # Docker-published ports bypass UFW (dockerd DNATs them in PREROUTING,
     # before UFW's INPUT chains), so the DOCKER-USER chain is their only
     # guard. The security role installs the rule and the boot unit that

@@ -1,0 +1,19 @@
+---
+# Remove the dashboard role completely.
+# Idempotent: running twice is a no-op.
+
+- name: Stop and remove the dashboard stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ stacks_root }}/dashboard"
+    state: absent
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Remove dashboard directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ stacks_root }}/dashboard"
+    - "{{ appdata_root }}/homepage"
+    - "{{ appdata_root }}/dockge"
+    - "{{ appdata_root }}/uptime-kuma"
