@@ -44,6 +44,7 @@ private_services:
   - { name: uptime, host: uptime-kuma, port: 3001, desc: Monitoring }
   - { name: dockge, host: dockge, port: 5001, desc: Compose stacks }
   - { name: homepage, host: homepage, port: 3000, desc: Dashboard }
+  - { name: hermes, host: hermes, port: 9119, desc: AI agent }
 
 # Email for Let's Encrypt certificate notices (optional but recommended).
 # TODO: set your email address.

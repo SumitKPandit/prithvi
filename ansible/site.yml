@@ -20,3 +20,13 @@
     - { role: media, tags: [media] }
     - { role: proxy, tags: [proxy, caddy, dns] }
     - { role: dashboard, tags: [dashboard] }
+    # Secret-gated stacks: these deploy once the matching key is in the secrets.
+    - role: hermes
+      tags: [hermes]
+      when: secrets['hermes_openrouter_api_key'] | default('') | length > 0
+    - role: dokploy
+      tags: [dokploy]
+      when: dokploy_enabled | bool
+    - role: tunnel
+      tags: [tunnel]
+      when: secrets['cloudflare_tunnel_token'] | default('') | length > 0

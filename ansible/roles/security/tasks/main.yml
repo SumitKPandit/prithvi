@@ -201,3 +201,62 @@
   ignore_errors: "{{ ansible_check_mode }}"
   when: secrets['uptime_kuma_disk_push_token'] | default('') | length > 0
   tags: [monitoring, security]
+
+# Docker-published ports bypass UFW: dockerd DNATs them in PREROUTING, so
+# they never cross UFW's INPUT chains. DOCKER-USER is the documented hook for
+# filtering forwarded Docker traffic; these rules pin the few host-published
+# ports (see README "Network model").
+- name: Install the DOCKER-USER filter script
+  ansible.builtin.copy:
+    content: |
+      #!/bin/sh
+      # Idempotent rules for the DOCKER-USER iptables chain. Docker never
+      # flushes this chain; rules vanish on reboot, hence the systemd unit.
+      set -eu
+      RULE=" -p tcp --dport 3000 ! -i tailscale0 -j DROP"
+      if ! iptables -C DOCKER-USER $RULE 2>/dev/null; then
+        iptables -I DOCKER-USER 1 $RULE
+        echo ADDED
+      fi
+    dest: /usr/local/sbin/docker-user-rules.sh
+    owner: root
+    group: root
+    mode: "0750"
+  tags: [ufw, security]
+
+- name: Apply the DOCKER-USER rules (Dokploy 3000 is Tailscale-only)
+  # The swarm publishes Dokploy's admin port 3000 host-mode on 0.0.0.0;
+  # UFW cannot see that path, so enforce it here.
+  ansible.builtin.command: /usr/local/sbin/docker-user-rules.sh
+  register: docker_user_rules
+  changed_when: "'ADDED' in docker_user_rules.stdout"
+  tags: [ufw, security]
+
+- name: Re-apply the DOCKER-USER rules on boot (they do not survive reboots)
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Filter Docker-published ports (DOCKER-USER chain)
+      After=docker.service
+      BindsTo=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/docker-user-rules.sh
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/docker-user-rules.service
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [ufw, security]
+
+- name: Enable the DOCKER-USER boot unit
+  ansible.builtin.systemd:
+    name: docker-user-rules.service
+    enabled: true
+    daemon_reload: true
+  # No state: it is Type=oneshot; the rule task above applies per-apply too.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [ufw, security]

@@ -1,0 +1,7 @@
+{#- Pre-seeded once; the agent owns this file afterwards (force=false). -#}
+---
+# Managed by Ansible. Extended by the agent; config migrations run at start.
+approvals:
+  # Security first: every dangerous command prompts in Telegram and waits for
+  # a human reply; unanswered prompts deny the command (fail closed).
+  mode: manual

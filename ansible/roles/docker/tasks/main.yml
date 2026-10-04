@@ -56,11 +56,14 @@
   # Containers publish on 192.168.0.2 / 100.88.141.33. At boot Docker may start
   # before Wi-Fi or tailscaled has the address; without this the port bind
   # fails and the container stays down (e.g. after the 03:00 auto-reboot).
+  # The file must live in /etc/sysctl.d: modern systemd never reads the
+  # legacy /etc/sysctl.conf directly.
   ansible.posix.sysctl:
     name: net.ipv4.ip_nonlocal_bind
     value: "1"
     sysctl_set: true
     reload: true
+    sysctl_file: /etc/sysctl.d/99-docker-nonlocal-bind.conf
 
 - name: Add user to docker group
   ansible.builtin.user:

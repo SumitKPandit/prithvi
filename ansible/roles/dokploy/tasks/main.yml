@@ -1,0 +1,118 @@
+---
+# Dokploy (self-hosted PaaS). Install via the official method; see README for
+# the one-time admin account creation right after install. Applying this role
+# initializes a single-node Docker Swarm (official requirement) with the
+# advertise address pinned to the LAN IP so it never picks Tailscale.
+- name: Read Docker swarm state
+  # NodeID is empty outside a swarm.
+  ansible.builtin.command: docker info --format {{ '{{.Swarm.NodeID}}' }}
+  changed_when: false
+  register: swarm_state
+  tags: [dokploy]
+
+- name: Initialize the single-node Docker Swarm
+  # Dokploy requires Swarm mode. Advertise the LAN IP so the swarm never
+  # picks the Tailscale or Wi-Fi-changed address. One-way change; leaving
+  # is documented in the README.
+  ansible.builtin.command:
+    argv: [docker, swarm, init, "--advertise-addr", "{{ lan_ip }}"]
+  when: swarm_state.stdout | length == 0
+  changed_when: true
+  tags: [dokploy]
+
+- name: Pre-create the attachable dokploy network
+  # cloudflared (a plain compose container) must be able to join this network
+  # to reach dokploy-traefik by name; only attachable overlay networks allow
+  # non-swarm containers. The installer reuses an existing network.
+  community.docker.docker_network:
+    name: dokploy-network
+    driver: overlay
+    attachable: true
+    state: present
+  tags: [dokploy]
+
+- name: Check whether Dokploy is installed
+  ansible.builtin.command: docker service inspect dokploy
+  changed_when: false
+  failed_when: false
+  register: dokploy_installed
+  tags: [dokploy]
+
+- name: Download the pinned Dokploy installer
+  # Version-pinned release installer (per the docs: the main dokploy.com
+  # script always targets the latest release and may not match this role).
+  ansible.builtin.get_url:
+    url: "https://github.com/Dokploy/dokploy/releases/download/{{ dokploy_version }}/install.sh"
+    dest: /tmp/dokploy-install.sh
+    mode: "0700"
+  when: dokploy_installed.rc != 0
+  tags: [dokploy]
+
+- name: Temporarily stop the private proxy
+  # The official installer refuses to run with anything on port 443, and our
+  # Caddy holds 443 on the LAN/Tailscale IPs by design. Stop it for the
+  # install window only ("Ensure the private proxy is running" restarts it).
+  ansible.builtin.command:
+    argv: [docker, compose, --project-directory, "{{ stacks_root }}/proxy", stop]
+  when: dokploy_installed.rc != 0
+  changed_when: true
+  tags: [dokploy]
+
+- name: Install Dokploy (single-node Swarm; ask before first run - see README)
+  ansible.builtin.command: /tmp/dokploy-install.sh
+  environment:
+    # Pin the Swarm advertise address so it never picks the Tailscale IP.
+    ADVERTISE_ADDR: "{{ lan_ip }}"
+  when: dokploy_installed.rc != 0
+  # The installer prints its own progress; treat a completed run as changed.
+  changed_when: true
+  tags: [dokploy]
+
+- name: Read the host ports Dokploy's Traefik publishes
+  # argv (not a string command): the Go template contains a space.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - inspect
+      - dokploy-traefik
+      - --format
+      - "{{ '{{json .HostConfig.PortBindings}}' }}"
+  changed_when: false
+  failed_when: false
+  register: traefik_ports
+  tags: [dokploy]
+
+# Dokploy's installer publishes 80/443 on all interfaces, which conflicts with
+# our private proxy (Caddy owns 443 on the LAN/Tailscale IPs) and would be
+# reachable from the LAN regardless of UFW. The tunnel reaches Traefik by
+# container name on dokploy-network, so the host ports are pure dead weight.
+# Dokploy upgrades can re-create Traefik with ports again, so this runs on
+# every apply: recreate identical to the installer (v0.30.8) minus the -p flags.
+- name: Recreate Dokploy's Traefik without host ports
+  ansible.builtin.shell: |
+    docker rm -f dokploy-traefik
+    docker run -d \
+      --name dokploy-traefik \
+      --restart always \
+      --network dokploy-network \
+      -v /etc/dokploy/traefik/traefik.yml:/etc/traefik/traefik.yml \
+      -v /etc/dokploy/traefik/dynamic:/etc/dokploy/traefik/dynamic \
+      -v /var/run/docker.sock:/var/run/docker.sock:ro \
+      traefik:{{ dokploy_traefik_image_tag }}
+  when: >
+    '"HostPort":"80"' in traefik_ports.stdout
+    or '"HostPort":"443"' in traefik_ports.stdout
+  changed_when: true
+  tags: [dokploy]
+
+- name: Ensure the private proxy is running
+  # No-op when already up. Needed here because the installer demands 443 free,
+  # so the install window stops Caddy; this also heals any accidental stop.
+  ansible.builtin.command:
+    argv: [docker, compose, --project-directory, "{{ stacks_root }}/proxy", start]
+  changed_when: false
+  tags: [dokploy]
+
+# Port 3000 (Dokploy admin UI) is published by the swarm in host mode, so
+# UFW applies to it: default-deny + allow-on-tailscale0 = Tailscale-only.
+# Nothing to configure here; verify.yml asserts it stays that way.

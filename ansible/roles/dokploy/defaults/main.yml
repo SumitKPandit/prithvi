@@ -1,0 +1,5 @@
+---
+# Verified latest stable release of Dokploy at the time of writing.
+dokploy_version: "v0.30.8"
+# Traefik image tag the pinned installer's docker run uses for dokploy-traefik.
+dokploy_traefik_image_tag: "v3.6.25"

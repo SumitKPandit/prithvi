@@ -1,0 +1,23 @@
+{#- Kept close to the official compose example. No published ports at all:
+   the dashboard is reached via Caddy at hermes.home.sumitkpandit.in. -#}
+services:
+  hermes:
+    image: {{ hermes_image }}
+    container_name: hermes
+    command: gateway run
+    volumes:
+      # The only host mount: its own data dir (s6 fixes ownership at boot).
+      - {{ appdata_root }}/hermes:/opt/data
+    environment:
+      - HERMES_DASHBOARD=1
+      - HERMES_DASHBOARD_BASIC_AUTH_USERNAME={{ hermes_dashboard_user }}
+      - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_PASSWORD}
+      - TZ={{ container_timezone }}
+    restart: unless-stopped
+    mem_limit: {{ hermes_mem_limit }}
+    cpus: "{{ hermes_cpus }}"
+
+networks:
+  default:
+    name: web
+    external: true
