@@ -42,6 +42,19 @@ vpn_enabled: false
 nas_enabled: false
 dokploy_enabled: true
 
+# NAS drives (roles/nas). Explicit lists: the role mounts by UUID, never
+# formats, and refuses any drive matching nas_never_touch.
+# nas_data_disks: [{ label: disk1, uuid: "XXXX-XXXX", mount: "/mnt/disk1" }]
+# nas_parity_disks: [{ label: parity1, uuid: "XXXX-XXXX", mount: "/mnt/parity1" }]
+nas_data_disks: []
+nas_parity_disks: []
+# Never-touched drives: the bus-powered Seagate Backup Plus Slims (NTFS, SMR,
+# not for 24/7). Any nas drive entry matching one of these is refused.
+nas_never_touch:
+  - Seagate_Backup
+  - Backup_Plus
+  - NTFS
+
 # Private services: one list drives Caddy routes, DNS records and the
 # Homepage dashboard, so they can never drift apart.
 # host/port = container name + port on the shared 'web' network.

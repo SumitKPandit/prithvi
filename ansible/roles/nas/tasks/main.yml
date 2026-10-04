@@ -1,0 +1,167 @@
+---
+# NAS: SnapRAID + mergerfs, disabled by default (nas_enabled: false).
+# This role MOUNTS and CONFIGURES only. It never formats, partitions or
+# wipes anything; that is nas-format.yml's job (needs nas_format_confirm=yes).
+- name: Assert the NAS inputs are sane before touching anything
+  ansible.builtin.assert:
+    that:
+      - nas_enabled | bool
+      - nas_data_disks | length > 0
+      - nas_parity_disks | length > 0
+      - nas_data_disks | map(attribute='uuid') | list | unique | length == nas_data_disks | length
+      - nas_parity_disks | map(attribute='uuid') | list | unique | length == nas_parity_disks | length
+      - >-
+        nas_data_disks | map(attribute='uuid') | list
+        | intersect(nas_parity_disks | map(attribute='uuid') | list)
+        | length == 0
+    fail_msg: >-
+      nas_enabled is true but the drive lists are empty, duplicated or
+      overlapping. Fill nas_data_disks/nas_parity_disks in group_vars/all.yml.
+  tags: [nas]
+
+- name: Assert every entry names a label, UUID and mount point
+  ansible.builtin.assert:
+    that:
+      - item.label is defined and item.label | length > 0
+      - item.uuid is defined and item.uuid | length > 0
+      - item.mount is defined and item.mount is match('^/mnt/')
+    fail_msg: "NAS drive entry is missing label/uuid/mount: {{ item }}"
+  loop: "{{ nas_data_disks + nas_parity_disks }}"
+  tags: [nas]
+
+- name: Refuse never-touch drives (Seagate USB bus-powered SMR spindles)
+  ansible.builtin.assert:
+    that: >-
+      nas_never_touch
+      | select('in', (item.by_id | default('')) + ' ' + (item.label | default('')))
+      | list | length == 0
+    fail_msg: "NAS drive entry matches the never-touch list: {{ item }}"
+  loop: "{{ nas_data_disks + nas_parity_disks }}"
+  tags: [nas]
+
+- name: Install SnapRAID and mergerfs
+  ansible.builtin.apt:
+    name: [snapraid, mergerfs]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags: [nas]
+
+- name: Create the disk and pool mount points
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ (nas_data_disks + nas_parity_disks) | map(attribute='mount') | list + [nas_pool_mount] }}"
+  tags: [nas]
+
+- name: Mount the data and parity disks by UUID
+  ansible.posix.mount:
+    src: "UUID={{ item.uuid }}"
+    path: "{{ item.mount }}"
+    fstype: auto
+    opts: defaults,nofail,x-systemd.device-timeout=30
+    state: mounted
+  loop: "{{ nas_data_disks + nas_parity_disks }}"
+  tags: [nas]
+
+- name: Render snapraid.conf (parity must be >= the largest data disk)
+  ansible.builtin.template:
+    src: snapraid.conf.j2
+    dest: /etc/snapraid.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: snapraid -c %s status
+  tags: [nas]
+
+- name: Mount the mergerfs pool
+  ansible.posix.mount:
+    src: >-
+      {{ nas_data_disks | map(attribute='mount')
+         | map('regex_replace', '$', '/media') | join(':') }}:{{ data_root }}/media
+    path: "{{ nas_pool_mount }}"
+    fstype: fuse.mergerfs
+    opts: >-
+      defaults,allow_other,use_ino,cache.files=off,dropcacheonclose=true,
+      category.create=mfs,moveonenospc=true,minfreespace=10G,fsname=mergerfs
+    state: mounted
+  tags: [nas]
+
+- name: Install the weekly SnapRAID sync timer
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=SnapRAID weekly sync
+
+      [Timer]
+      OnCalendar=Sun *-*-* 05:00:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+    dest: /etc/systemd/system/snapraid-sync.timer
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [nas]
+
+- name: Install the SnapRAID sync service
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=SnapRAID sync
+
+      [Service]
+      Type=oneshot
+      ExecStart=snapraid sync
+    dest: /etc/systemd/system/snapraid-sync.service
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [nas]
+
+- name: Install the monthly SnapRAID scrub timer
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=SnapRAID monthly scrub (10%% of the array)
+
+      [Timer]
+      OnCalendar=*-*-01 06:00:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+    dest: /etc/systemd/system/snapraid-scrub.timer
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [nas]
+
+- name: Install the SnapRAID scrub service
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=SnapRAID scrub (10%%)
+
+      [Service]
+      Type=oneshot
+      ExecStart=snapraid -p 10 -o 0 scrub
+    dest: /etc/systemd/system/snapraid-scrub.service
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [nas]
+
+- name: Enable the SnapRAID timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop: [snapraid-sync.timer, snapraid-scrub.timer]
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [nas]

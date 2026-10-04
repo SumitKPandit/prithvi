@@ -1,7 +1,7 @@
 # Thin wrappers around the real commands. Everything runs from ansible/ per repo
 # convention. Run `make` with no target to see this list.
 
-.PHONY: deps bootstrap check apply verify lint fmt secrets-init secrets-edit secrets-check apt-upgrade teardown verify-clean baseline
+.PHONY: deps bootstrap check apply verify lint fmt secrets-init secrets-edit secrets-check apt-upgrade teardown verify-clean baseline nas-format
 
 deps: ## Install Ansible collections and pre-commit hook
 	# --force also installs into ~/.ansible/collections when the collections
@@ -80,3 +80,13 @@ verify-clean: ## Diff the current server state against the baseline in baseline/
 
 baseline: ## Capture baseline state from a FRESH Ubuntu install (run on server, not on g3plus)
 	sh scripts/capture-baseline.sh
+
+nas-format: ## DESTRUCTIVE: format the NAS disks (prompts; needs nas_format_confirm=yes)
+	@echo "WARNING: this wipes the disks listed in nas_data_disks/nas_parity_disks!"
+	@read -p "Type 'yes' to wipe and format every listed disk: " CONFIRM; \
+	if [ "$$CONFIRM" = "yes" ]; then \
+		cd ansible && ansible-playbook nas-format.yml -e nas_format_confirm=yes; \
+	else \
+		echo "Format aborted"; \
+		exit 1; \
+	fi

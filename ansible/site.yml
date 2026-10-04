@@ -32,6 +32,11 @@
     - { role: tailscale, tags: [tailscale] }
     - { role: security, tags: [security, ssh, ufw, updates, monitoring] }
     - { role: storage, tags: [storage] }
+    - role: nas
+      tags: [nas]
+      # Disabled by default; see README "Phase 6: NAS". The role asserts its
+      # own inputs before doing anything.
+      when: nas_enabled | bool
     - { role: media, tags: [media] }
     - { role: proxy, tags: [proxy, caddy, dns] }
     - { role: dashboard, tags: [dashboard] }

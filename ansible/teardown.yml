@@ -64,6 +64,11 @@
         name: media
         tasks_from: remove
 
+    - name: Remove nas role artifacts
+      ansible.builtin.include_role:
+        name: nas
+        tasks_from: remove
+
     - name: Remove storage role artifacts
       ansible.builtin.include_role:
         name: storage
