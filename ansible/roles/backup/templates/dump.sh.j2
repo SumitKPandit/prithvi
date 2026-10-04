@@ -1,0 +1,30 @@
+#!/bin/sh
+# Pre-backup dumps for state that cannot be file-copied coherently while the
+# app is running. Output goes to {{ backup_root }}/dumps, which backup-run.sh
+# feeds to restic.
+set -eu
+
+{% if dokploy_enabled | bool %}
+# Dokploy's Postgres. Its PGDATA volume is deliberately excluded from the
+# restic backup (a live file copy of Postgres is worthless); this dump is
+# the authoritative database backup.
+# Redirection first, gzip separately: POSIX sh has no pipefail, a pipeline
+# would hide a failed pg_dump behind a successful gzip.
+docker exec "$(docker ps -q -f name=dokploy-postgres)" \
+  pg_dump -U dokploy -d dokploy \
+  > {{ backup_root }}/dumps/dokploy-postgres.sql
+gzip -f {{ backup_root }}/dumps/dokploy-postgres.sql
+{% else %}
+echo "dokploy disabled: skipping the postgres dump"
+{% endif %}
+
+# Uptime Kuma's sqlite db, via sqlite's online-backup API from the host
+# against the bind-mounted file (safe while the app runs; handles WAL).
+# kuma.db only exists once the admin account has been created in the UI -
+# until then there is nothing to dump.
+if [ -f /opt/appdata/uptime-kuma/kuma.db ]; then
+  sqlite3 /opt/appdata/uptime-kuma/kuma.db \
+    ".backup /opt/appdata/uptime-kuma/kuma.db.bak"
+else
+  echo "uptime-kuma: no kuma.db yet (admin not created), skipping"
+fi

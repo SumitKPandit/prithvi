@@ -148,9 +148,11 @@
   tags: [monitoring, security]
 
 - name: Store the push tokens for host scripts (0600, root only)
+  # Disk usage alert + backup result, each into its own push monitor.
   ansible.builtin.copy:
     content: |
       KUMA_DISK_PUSH_TOKEN={{ secrets['uptime_kuma_disk_push_token'] | default('') }}
+      KUMA_BACKUP_PUSH_TOKEN={{ secrets['uptime_kuma_backup_push_token'] | default('') }}
     dest: /etc/kuma-push.env
     owner: root
     group: root

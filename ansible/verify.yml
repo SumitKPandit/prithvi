@@ -343,3 +343,72 @@
       loop: "{{ swarm_services.stdout_lines | default([]) }}"
       loop_control: { label: "{{ item.split()[0] }}" }
       when: dokploy_enabled | bool
+
+    # Backups (the role is gated on the restic password in the secrets)
+    - name: Backup timers are active and enabled
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+      check_mode: true
+      loop: [backup.timer, backup-maintenance.timer]
+      register: backup_timers
+      when: secrets['restic_repository_password'] | default('') | length > 0
+    - name: Assert backup timers
+      ansible.builtin.assert:
+        that:
+          - item.status.ActiveState == 'active'
+          - "'enabled' in item.status.UnitFileState"
+        fail_msg: "{{ item.item }} is not active+enabled"
+      loop: "{{ backup_timers.results }}"
+      loop_control: { label: "{{ item.item }}" }
+      when: backup_timers is not skipped
+
+    - name: The restic repo exists and holds snapshots
+      ansible.builtin.command:
+        argv:
+          - restic
+          - -r
+          - "{{ backup_root }}/restic"
+          - --password-file
+          - /etc/restic.pass
+          - snapshots
+          - --json
+      changed_when: false
+      register: restic_snapshots
+      when: secrets['restic_repository_password'] | default('') | length > 0
+    - name: Assert snapshots exist
+      ansible.builtin.assert:
+        that: restic_snapshots.stdout | from_json | length > 0
+        fail_msg: >-
+          No snapshots in {{ backup_root }}/restic;
+          seed it with: ssh g3plus sudo systemctl start backup.service
+      when: restic_snapshots is not skipped
+
+    - name: The restic repo passes an integrity check
+      ansible.builtin.command:
+        argv:
+          - restic
+          - -r
+          - "{{ backup_root }}/restic"
+          - --password-file
+          - /etc/restic.pass
+          - check
+      changed_when: false
+      register: restic_check
+      failed_when: false
+      when: secrets['restic_repository_password'] | default('') | length > 0
+    - name: Assert the repo check passed
+      ansible.builtin.assert:
+        that: restic_check.rc == 0
+        fail_msg: "restic check failed: {{ restic_check.stderr }}"
+      when: restic_check is not skipped
+
+    - name: The Dokploy postgres dump is seeded
+      ansible.builtin.stat:
+        path: "{{ backup_root }}/dumps/dokploy-postgres.sql.gz"
+      register: pg_dump_file
+      when: dokploy_enabled | bool
+    - name: Assert the dump is seeded
+      ansible.builtin.assert:
+        that: pg_dump_file.stat.exists and pg_dump_file.stat.size > 0
+        fail_msg: "No postgres dump at {{ backup_root }}/dumps; run backup.service"
+      when: pg_dump_file is not skipped

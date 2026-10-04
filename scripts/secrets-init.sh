@@ -43,7 +43,8 @@ fi
 
 if [[ ! -f "${SECRETS}" ]]; then
   TMP="$(mktemp)"
-  # The internal_* keys are machine-to-machine secrets, so we generate them.
+  # internal_* keys and the restic repository password are machine secrets,
+  # so we generate them.
   python3 - "$REPO/ansible/secrets.example.yaml" "$TMP" <<'PY'
 import secrets as s, sys, re
 src, dst = sys.argv[1], sys.argv[2]
@@ -52,7 +53,7 @@ def gen(key):
     v = s.token_hex(24) if "password" not in key else s.token_urlsafe(18)
     return re.sub(rf'^(internal_{key}: ).*$', rf'\g<1>"{v}"', text, flags=re.M)
 for k in ("sonarr_api_key", "radarr_api_key", "prowlarr_api_key", "bazarr_api_key",
-          "jellyseerr_api_key", "qbittorrent_admin_password"):
+          "jellyseerr_api_key", "qbittorrent_admin_password", "restic_repository_password"):
     text = gen(k)
 open(dst, "w").write(text)
 PY

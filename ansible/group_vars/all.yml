@@ -25,6 +25,18 @@ media_gid: 2000
 # Disk usage that triggers an alert (percent of /)
 disk_alert_pct: 85
 
+# Backups (roles/backup): restic snapshots into a local repo, mirrored to
+# Google Drive with rclone. Restores are repo-only; media is excluded
+# (re-fetchable, and the NAS role gives it parity later).
+backup_root: "/opt/backups"           # repo + dumps; move to the pool in Phase 6
+backup_rclone_remote: "drive"         # remote name in /etc/rclone/rclone.conf
+backup_drive_path: "prithvi/restic"   # folder on Google Drive
+backup_on_calendar: "*-*-* 01:30:00"  # daily, 07:00 IST
+backup_maintenance_on_calendar: "Sun *-*-* 03:30:00"  # Sundays, 09:00 IST
+backup_keep_daily: 7
+backup_keep_weekly: 4
+backup_keep_monthly: 6
+
 # Feature toggles
 vpn_enabled: false
 nas_enabled: false

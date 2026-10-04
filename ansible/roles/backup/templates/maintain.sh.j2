@@ -1,0 +1,52 @@
+#!/bin/sh
+# Weekly maintenance: prune the repo, re-sync Drive (sync propagates the
+# deletions the prune made), verify repository integrity on a rotating
+# subset, and run a one-file restore drill so a restore is proven, not
+# assumed. Pushes the result to the Uptime Kuma push monitor.
+set -eu
+
+export RESTIC_REPOSITORY={{ backup_root }}/restic
+export RESTIC_PASSWORD_FILE=/etc/restic.pass
+
+STEP=start
+KUMA_BACKUP_PUSH_TOKEN=
+if [ -f /etc/kuma-push.env ]; then . /etc/kuma-push.env; fi
+
+push() {
+  [ -n "${KUMA_BACKUP_PUSH_TOKEN:-}" ] || return 0
+  curl -fsS --max-time 15 \
+    "https://uptime.{{ private_host_suffix }}/api/push/${KUMA_BACKUP_PUSH_TOKEN}?status=$1&msg=$2" \
+    >/dev/null || echo "WARN: Uptime Kuma push failed"
+}
+
+trap 'push down "maintenance-failed-$STEP"' EXIT
+
+STEP=prune
+restic forget --prune \
+  --keep-daily {{ backup_keep_daily }} \
+  --keep-weekly {{ backup_keep_weekly }} \
+  --keep-monthly {{ backup_keep_monthly }}
+
+STEP=sync
+if [ -f /etc/rclone/rclone.conf ]; then
+  rclone --config /etc/rclone/rclone.conf sync \
+    {{ backup_root }}/restic \
+    {{ backup_rclone_remote }}:{{ backup_drive_path }} \
+    --transfers 4 --checkers 8
+fi
+
+STEP=check
+# Reads and verifies a rotating 1/7th of the data packs each Sunday; the
+# repo is small enough that this covers everything within two months.
+restic check --read-data-subset=1/7
+
+STEP=restore-drill
+# Prove a restore actually works: pull one known file out of the latest
+# snapshot. /opt/stacks/proxy/compose.yaml is tiny and always present.
+RESTORE_DIR=$(mktemp -d)
+restic restore latest --include /opt/stacks/proxy/compose.yaml -t "$RESTORE_DIR"
+test -s "$RESTORE_DIR/opt/stacks/proxy/compose.yaml"
+rm -rf "$RESTORE_DIR"
+
+trap - EXIT
+push up maintenance-ok

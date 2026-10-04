@@ -1,0 +1,5 @@
+# Managed by Ansible. The token comes from the rclone_drive_token secret
+# (single-line JSON blob produced by rclone config on your Mac).
+[{{ backup_rclone_remote }}]
+type = drive
+token = {{ secrets['rclone_drive_token'] }}
