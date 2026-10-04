@@ -41,6 +41,8 @@
     - jellyfin
     # flaresolverr was excluded before, leaving the dir root:root (F-34).
     - flaresolverr
+    # Recyclarr's config + trash-guide cache live here (F-39).
+    - recyclarr
   tags: [media]
 
 - name: Create the stack directory
@@ -154,6 +156,112 @@
     find {{ appdata_root }} -type f -perm -o=r -print -exec chmod o-r {} +
   changed_when: "appdata_chmod.stdout | length > 0"
   register: appdata_chmod
+  tags: [media]
+
+# Recyclarr (F-39): syncs the TRaSH guides' quality definitions, profiles,
+# custom formats and naming into Sonarr/Radarr. Uses the repo's pre-seeded
+# internal API keys (not user secrets); runs weekly via recyclarr.timer.
+# Recyclarr's `config create` writes each template's YAML once (Ansible never
+# touches it again), then Ansible points the two files at the two apps.
+- name: Check whether the Recyclarr template configs exist
+  ansible.builtin.stat:
+    path: "{{ appdata_root }}/recyclarr/configs/{{ item }}.yml"
+  loop: [web-1080p, hd-bluray-web]
+  register: recyclarr_cfg
+  tags: [media]
+
+- name: Seed the Recyclarr template configs
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --profile
+      - tools
+      - --project-directory
+      - "{{ stacks_root }}/media"
+      - run
+      - --rm
+      - recyclarr
+      - config
+      - create
+      - --template
+      - "{{ item.item }}"
+  loop: "{{ recyclarr_cfg.results }}"
+  when: not item.stat.exists
+  changed_when: true
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [media]
+
+- name: Point the Sonarr template at Sonarr
+  ansible.builtin.lineinfile:
+    path: "{{ appdata_root }}/recyclarr/configs/web-1080p.yml"
+    regexp: '^    base_url: .*$'
+    line: "    base_url: http://sonarr:{{ sonarr_port }}"
+  tags: [media]
+
+- name: Point the Radarr template at Radarr
+  ansible.builtin.lineinfile:
+    path: "{{ appdata_root }}/recyclarr/configs/hd-bluray-web.yml"
+    regexp: '^    base_url: .*$'
+    line: "    base_url: http://radarr:{{ radarr_port }}"
+  tags: [media]
+
+- name: Set the Sonarr API key in the Sonarr template
+  ansible.builtin.lineinfile:
+    path: "{{ appdata_root }}/recyclarr/configs/web-1080p.yml"
+    regexp: '^    api_key: .*$'
+    line: "    api_key: {{ secrets['internal_sonarr_api_key'] | default('') }}"
+  no_log: true
+  tags: [media]
+
+- name: Set the Radarr API key in the Radarr template
+  ansible.builtin.lineinfile:
+    path: "{{ appdata_root }}/recyclarr/configs/hd-bluray-web.yml"
+    regexp: '^    api_key: .*$'
+    line: "    api_key: {{ secrets['internal_radarr_api_key'] | default('') }}"
+  no_log: true
+  tags: [media]
+
+- name: Install the Recyclarr sync timer (weekly, Saturday 04:00 UTC)
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Recyclarr: sync TRaSH guides into Sonarr/Radarr
+
+      [Timer]
+      OnCalendar=Sat *-*-* 04:00:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+    dest: /etc/systemd/system/recyclarr.timer
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [media]
+
+- name: Install the Recyclarr sync service
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Recyclarr one-shot sync
+
+      [Service]
+      Type=oneshot
+      ExecStart=docker compose --profile tools --project-directory {{ stacks_root }}/media run --rm recyclarr sync
+    dest: /etc/systemd/system/recyclarr.service
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [media]
+
+- name: Enable the Recyclarr timer
+  ansible.builtin.systemd:
+    name: recyclarr.timer
+    state: started
+    enabled: true
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"
   tags: [media]
 
 # Section 3+4: wait for the APIs, then wire the apps together. Skipped in

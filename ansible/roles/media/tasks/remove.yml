@@ -29,6 +29,7 @@
     - jellyseerr
     - flaresolverr
     - jellyfin
+    - recyclarr
   when: teardown_data | default(false) | bool
 
 - name: Remove the media stack directory

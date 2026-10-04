@@ -223,6 +223,28 @@ services:
       retries: 3
       start_period: 60s
 
+  # Recyclarr syncs quality definitions, quality profiles, custom formats and
+  # naming from the TRaSH guides into Sonarr/Radarr. One-shot by design: the
+  # recyclarr.timer runs `docker compose --profile tools run --rm recyclarr
+  # sync`; the `tools` profile keeps the runner out of plain `compose up`.
+  recyclarr:
+    image: {{ recyclarr_image }}
+    # No container_name: the timer's `run --rm` creates its own instance.
+    environment:
+      - PUID={{ media_uid }}
+      - PGID={{ media_gid }}
+      - TZ={{ container_timezone }}
+    # The image runs as its own uid; pin it to the media uid so its config
+    # files (owned by media:media) stay writable.
+    user: "{{ media_uid }}:{{ media_gid }}"
+    volumes:
+      - {{ appdata_root }}/recyclarr:/config
+    profiles: ["tools"]
+    mem_limit: {{ media_mem_limits.recyclarr }}
+    restart: "no"
+    # Reached as http://sonarr:8989 / http://radarr:7878 on the shared web network.
+    command: ["sync"]
+
 # One shared network with Caddy and the dashboards (created by the storage
 # role); reverse-proxying by container name works across stacks.
 networks:

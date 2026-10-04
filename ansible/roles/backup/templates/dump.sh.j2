@@ -18,13 +18,16 @@ gzip -f {{ backup_root }}/dumps/dokploy-postgres.sql
 echo "dokploy disabled: skipping the postgres dump"
 {% endif %}
 
-# Uptime Kuma's sqlite db, via sqlite's online-backup API from the host
-# against the bind-mounted file (safe while the app runs; handles WAL).
-# kuma.db only exists once the admin account has been created in the UI -
-# until then there is nothing to dump.
-if [ -f {{ appdata_root }}/uptime-kuma/kuma.db ]; then
-  sqlite3 {{ appdata_root }}/uptime-kuma/kuma.db \
-    ".backup {{ appdata_root }}/uptime-kuma/kuma.db.bak"
+# Uptime Kuma 2.x keeps its data in an embedded MariaDB whose datadir is
+# {{ appdata_root }}/uptime-kuma/mariadb. Dump the `kuma` database through
+# the container's unix socket. The only unix-socket identity the embedded
+# MariaDB accepts is the OS user `node` (mariadbd runs as --user=node); no
+# password is stored anywhere.
+if docker ps --format '{{ '{{.Names}}' }}' | grep -qx uptime-kuma; then
+  docker exec -u node uptime-kuma \
+    mariadb-dump -u node -S /app/data/run/mariadb.sock \
+    kuma > {{ backup_root }}/dumps/kuma.sql
+  gzip -f {{ backup_root }}/dumps/kuma.sql
 else
-  echo "uptime-kuma: no kuma.db yet (admin not created), skipping"
+  echo "uptime-kuma: container not running, skipping the dump"
 fi

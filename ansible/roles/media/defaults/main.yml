@@ -8,6 +8,9 @@ radarr_image: "linuxserver/radarr:6.4.4"
 prowlarr_image: "linuxserver/prowlarr:2.6.5"
 bazarr_image: "linuxserver/bazarr:1.6.2"
 jellyseerr_image: "fallenbagel/jellyseerr:2.7.3"
+# Recyclarr image (v8 line is pinned to the latest v8 GHCR tag, GHCR does not pin 8.7.2).
+# See README "Recyclarr". Latest verified: 8.7.2 release, 8.7.1 image.
+recyclarr_image: "ghcr.io/recyclarr/recyclarr:8.7.1"
 flaresolverr_image: "flaresolverr/flaresolverr:v3.5.2"
 jellyfin_image: "linuxserver/jellyfin:12.1ubu2604-ls51"
 
@@ -31,6 +34,7 @@ media_mem_limits:
   prowlarr: 512m
   bazarr: 768m
   jellyseerr: 512m
+  recyclarr: 512m
   flaresolverr: 512m
   jellyfin: 4g
 
