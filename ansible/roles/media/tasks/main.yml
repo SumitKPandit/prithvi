@@ -102,7 +102,7 @@
 - name: Pre-seed Arr API keys into config.xml (only if absent)
   # Fresh builds: the apps adopt these keys on first start. This server's apps
   # already generated their own keys, which were adopted into the secrets.
-  # Bazarr is not here: its API key lives in config/config.yaml, not config.xml.
+  # (Bazarr's key is seeded separately below: it lives in config.yaml.)
   ansible.builtin.template:
     src: config.xml.j2
     dest: "{{ appdata_root }}/{{ item.name }}/config.xml"
@@ -118,6 +118,27 @@
     - name: prowlarr
       key: "{{ secrets['internal_prowlarr_api_key'] | default('') }}"
   no_log: true
+
+# Bazarr keeps its API key in config/config.yaml, not config.xml, so it is
+# seeded here, fresh-installs only (Bazarr generates its own key otherwise).
+- name: Check for an existing Bazarr config
+  ansible.builtin.stat:
+    path: "{{ appdata_root }}/bazarr/config/config.yaml"
+  register: bazarr_conf
+  tags: [media]
+
+- name: Pre-seed the Bazarr API key on fresh installs only
+  ansible.builtin.lineinfile:
+    path: "{{ appdata_root }}/bazarr/config/config.yaml"
+    regexp: '^apikey:'
+    line: "apikey: {{ secrets['internal_bazarr_api_key'] | default('') }}"
+    create: true
+    owner: media
+    group: media
+    mode: "0640"
+  no_log: true
+  when: not bazarr_conf.stat.exists and secrets['internal_bazarr_api_key'] | default('') | length > 0
+  tags: [media]
 
 # Section 2: render and deploy the stack
 - name: Render the media compose file

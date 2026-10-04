@@ -466,9 +466,44 @@
         fail_msg: "No postgres dump at {{ backup_root }}/dumps; run backup.service"
       when: pg_dump_file is not skipped
 
+    # Recyclarr (uses the repo's pre-seeded keys; no user secret needed).
+    - name: Recyclarr timer is active and enabled
+      ansible.builtin.systemd:
+        name: recyclarr.timer
+      check_mode: true
+      register: recyclarr_timer
+    - name: Assert Recyclarr timer
+      ansible.builtin.assert:
+        that:
+          - recyclarr_timer.status.ActiveState == 'active'
+          - "'enabled' in recyclarr_timer.status.UnitFileState"
+        fail_msg: "recyclarr.timer is not active+enabled"
+
+    - name: Recyclarr synced the TRaSH profiles
+      # Ports are the media stack's fixed internal ports (see media defaults).
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ item.port }}/api/v3/qualityprofile"
+        headers: { X-Api-Key: "{{ secrets[item.key] | default('') }}" }
+        return_content: true
+      loop:
+        - { port: "8989", key: internal_sonarr_api_key, profile: WEB-1080p }
+        - { port: "7878", key: internal_radarr_api_key, profile: HD Bluray + WEB }
+      register: recyclarr_profiles
+      changed_when: false
+      failed_when: false
+      when: secrets[item.key] | default('') | length > 0
+    - name: Assert the TRaSH profiles exist
+      ansible.builtin.assert:
+        that: item.item.profile in (item.json | map(attribute='name') | list)
+        fail_msg: "Recyclarr profile {{ item.item.profile }} missing; run the recyclarr.service."
+      loop: "{{ recyclarr_profiles.results | default([]) }}"
+      loop_control: { label: "{{ item.item.profile | default('skipped') }}" }
+      when: item is not skipped
+
     - name: Report stacks not deployed because their secret is empty
+      # Secretless mode is a supported state: these are WARNs, never FAILs.
       ansible.builtin.debug:
-        msg: "NOT DEPLOYED: {{ item.role }} (missing secret {{ item.key }})"
+        msg: "WARN NOT DEPLOYED (missing secret {{ item.key }}): {{ item.role }}"
       loop:
         - { role: hermes, key: hermes_openrouter_api_key }
         - { role: tunnel, key: cloudflare_tunnel_token }
@@ -481,3 +516,199 @@
         - { role: vpn, key: vpn_provider }
       when: secrets[item.key] | default('') | length == 0
       loop_control: { label: "{{ item.role }}" }
+
+    # Secrets/state agreement: when a secret IS present, the matching
+    # deployment must exist (otherwise apply silently dropped it).
+    - name: Agreement - hermes secret present means the container exists
+      ansible.builtin.command:
+        argv: [docker, inspect, hermes]
+      changed_when: false
+      failed_when: false
+      register: hermes_present
+      when: secrets['hermes_openrouter_api_key'] | default('') | length > 0
+    - name: Assert hermes agreement
+      ansible.builtin.assert:
+        that: hermes_present.rc == 0
+        fail_msg: "hermes_openrouter_api_key is set but no hermes container; run make apply."
+      when: hermes_present is not skipped
+
+    - name: Agreement - tunnel secret present means cloudflared exists
+      ansible.builtin.command:
+        argv: [docker, inspect, cloudflared]
+      changed_when: false
+      failed_when: false
+      register: tunnel_present
+      when: secrets['cloudflare_tunnel_token'] | default('') | length > 0
+    - name: Assert tunnel agreement
+      ansible.builtin.assert:
+        that: tunnel_present.rc == 0
+        fail_msg: "cloudflare_tunnel_token is set but no cloudflared container; run make apply."
+      when: tunnel_present is not skipped
+
+    - name: Agreement - drive token present means rclone.conf exists
+      ansible.builtin.stat:
+        path: /etc/rclone/rclone.conf
+      register: rclone_conf
+      when: secrets['rclone_drive_token'] | default('') | length > 0
+    - name: Assert rclone agreement
+      ansible.builtin.assert:
+        that: rclone_conf.stat.exists
+        fail_msg: "/etc/rclone/rclone.conf missing although rclone_drive_token is set; run make apply."
+      when: rclone_conf is not skipped
+
+    - name: Agreement - kuma disk token present means the timer runs
+      ansible.builtin.systemd:
+        name: disk-usage-check.timer
+      check_mode: true
+      register: disk_timer
+      when: secrets['uptime_kuma_disk_push_token'] | default('') | length > 0
+    - name: Assert disk timer agreement
+      ansible.builtin.assert:
+        that:
+          - disk_timer.status.ActiveState == 'active'
+          - "'enabled' in disk_timer.status.UnitFileState"
+        fail_msg: "disk-usage-check.timer not running although its token is set; run make apply."
+      when: disk_timer is not skipped
+
+    # No listener outside the allow-list: anything not enumerated here fails.
+    - name: Collect all listening sockets with their processes
+      ansible.builtin.shell: ss -H -tlnp; ss -H -ulnp
+      changed_when: false
+      register: all_listeners
+    - name: Assert nothing listens outside the allow-list
+      # Loopback-bound compose ports are all fine (README: 127.0.0.1-only);
+      # everything else must be named in scripts/check-listeners.py.
+      ansible.builtin.script:
+        cmd: ../scripts/check-listeners.py {{ tailscale_ip }} {{ lan_ip }}
+      changed_when: false
+      register: listeners_check
+      failed_when: listeners_check.rc != 0
+
+    # UFW rules match the repo's expected list (drift from manual edits fails).
+    - name: Collect the UFW ruleset
+      ansible.builtin.command: ufw status numbered
+      changed_when: false
+      register: ufw_ruleset
+    - name: Assert the UFW ruleset matches the repo
+      vars:
+        expected: ['22/tcp', '2377/tcp', '7946/tcp', '7946/udp', '4789/udp', 'tailscale0', '443/tcp']
+        ufw_text: "{{ ufw_ruleset.stdout }}"
+      ansible.builtin.assert:
+        that: expected | reject('in', ufw_text) | list | length == 0
+        fail_msg: "UFW ruleset drifted from the repo: {{ ufw_ruleset.stdout }}"
+    - name: Assert the Swarm deny rules precede the tailscale0 accept
+      vars:
+        lines: "{{ ufw_ruleset.stdout_lines }}"
+      ansible.builtin.assert:
+        that:
+          - lines | select('search', '2377/tcp.*DENY') | list | length > 0
+          - lines | select('search', '4789/udp.*DENY') | list | length > 0
+        fail_msg: "Swarm control-port DENY rules missing or reordered: {{ ufw_ruleset.stdout }}"
+
+    # IPv6 side is gated the same way as IPv4.
+    - name: Assert the v6 DOCKER-USER chain mirrors the v4 gating
+      ansible.builtin.command:
+        argv: [ip6tables, -S, DOCKER-USER]
+      changed_when: false
+      register: ip6_docker_user
+    - name: Assert v6 port-3000 gating exists
+      ansible.builtin.assert:
+        that: "'--dport 3000' in ip6_docker_user.stdout"
+        fail_msg: "ip6tables DOCKER-USER has no port-3000 gate; Dokploy UI may be reachable over v6."
+
+    # Homepage must load behind Caddy (the --resolve stands in for the
+    # *.home.sumitkpandit.in DNS records that do not exist in secretless mode).
+    - name: Homepage answers 200 behind Caddy
+      ansible.builtin.command:
+        argv:
+          - curl
+          - -s
+          - -k
+          - --resolve
+          - "homepage.{{ private_host_suffix }}:443:{{ lan_ip }}"
+          - -o
+          - /dev/null
+          - -w
+          - "%{http_code}"
+          - "https://homepage.{{ private_host_suffix }}/"
+      changed_when: false
+      register: homepage_code
+    - name: Assert Homepage is reachable
+      ansible.builtin.assert:
+        that: homepage_code.stdout == '200'
+        fail_msg: "Homepage is not 200 behind Caddy: {{ homepage_code.stdout }}"
+
+    # Caddy's certificate issuer matches the deployment mode: internal CA in
+    # secretless mode, Let's Encrypt once cloudflare_api_token is set.
+    - name: Read the served certificate issuer
+      # noqa: risky-shell-pipe (s_client output is piped to x509 by design)
+      ansible.builtin.shell: >-
+        echo | openssl s_client -connect {{ lan_ip }}:443
+        -servername homepage.{{ private_host_suffix }} 2>/dev/null
+        | openssl x509 -noout -issuer
+      changed_when: false
+      register: cert_issuer
+    - name: Assert the issuer matches secretless/secreted mode
+      # Secretless: the internal CA. Secreted: any public CA (whichever ACME
+      # server Caddy negotiates), just not the internal one.
+      vars:
+        internal_mode: "{{ secrets['cloudflare_api_token'] | default('') | length == 0 }}"
+        issuer: "{{ cert_issuer.stdout }}"
+      ansible.builtin.assert:
+        that:
+          - (internal_mode and 'Caddy Local Authority' in issuer) or (not internal_mode)
+          - internal_mode or ('Caddy Local Authority' not in issuer)
+        fail_msg: "Certificate issuer {{ cert_issuer.stdout }} does not match mode (secretless: {{ internal_mode }})"
+
+    # Swarm ports are closed to the outside (UFW denies; the swarm itself
+    # still listens, which is expected for dockerd).
+    - name: Assert the Swarm ports are denied in UFW
+      ansible.builtin.assert:
+        that:
+          - "'2377/tcp' in ufw_ruleset.stdout"
+          - "'7946/tcp' in ufw_ruleset.stdout"
+          - "'4789/udp' in ufw_ruleset.stdout"
+        fail_msg: "Swarm control ports are not denied in UFW: {{ ufw_ruleset.stdout }}"
+
+    # DNS + tunnel checks only run when the token exists (BLOCKED-BY-SECRET).
+    - name: The private DNS records resolve to the Tailscale IP
+      ansible.builtin.command:
+        argv: [getent, hosts, "{{ item.name }}.{{ private_host_suffix }}"]
+      changed_when: false
+      failed_when: false
+      loop: "{{ private_services }}"
+      register: dns_records
+      when: secrets['cloudflare_api_token'] | default('') | length > 0
+    - name: Assert the DNS records all point at the tailnet
+      vars:
+        resolved: "{{ dns_records.results | selectattr('stdout', 'defined') | map(attribute='stdout') | list }}"
+      ansible.builtin.assert:
+        that: resolved | select('search', tailscale_ip) | list | length == dns_records.results | length
+        fail_msg: "A private DNS record does not resolve to {{ tailscale_ip }}: {{ dns_records }}"
+      when: dns_records is not skipped
+
+    - name: The cloudflared connector is up when its token exists
+      ansible.builtin.command:
+        argv: [docker, inspect, cloudflared, --format, "{{ '{{.State.Status}}' }}"]
+      changed_when: false
+      register: cloudflared_state
+      when: secrets['cloudflare_tunnel_token'] | default('') | length > 0
+    - name: Assert cloudflared is running
+      ansible.builtin.assert:
+        that: cloudflared_state.stdout == 'running'
+        fail_msg: "cloudflared is not running: {{ cloudflared_state.stdout | default('missing') }}"
+      when: cloudflared_state is not skipped
+
+    # Jellyfin hardware acceleration (only meaningful once the admin exists).
+    - name: Jellyfin reports Quick Sync hardware acceleration
+      ansible.builtin.command:
+        argv: [docker, exec, jellyfin, cat, /config/encoding.xml]
+      changed_when: false
+      failed_when: false
+      register: jellyfin_encoding
+      when: secrets['jellyfin_admin_password'] | default('') | length > 0
+    - name: Assert Jellyfin QSV
+      ansible.builtin.assert:
+        that: "'<HardwareAccelerationType>qsv</HardwareAccelerationType>' in jellyfin_encoding.stdout"
+        fail_msg: "Jellyfin is not on Quick Sync: {{ jellyfin_encoding.stdout[:200] | default('unreadable') }}"
+      when: jellyfin_encoding is not skipped

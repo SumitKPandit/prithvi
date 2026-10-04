@@ -1,7 +1,7 @@
 # Thin wrappers around the real commands. Everything runs from ansible/ per repo
 # convention. Run `make` with no target to see this list.
 
-.PHONY: deps bootstrap check apply verify lint fmt secrets-init secrets-edit secrets-check apt-upgrade teardown verify-clean baseline nas-format
+.PHONY: deps bootstrap check apply verify lint fmt secrets-init secrets-edit secrets-check apt-upgrade teardown verify-clean baseline nas-format hosts-snippet caddy-root-cert
 
 deps: ## Install Ansible collections and pre-commit hook
 	# --force also installs into ~/.ansible/collections when the collections
@@ -77,3 +77,9 @@ nas-format: ## DESTRUCTIVE: format the NAS disks (prompts; needs nas_format_conf
 		echo "Format aborted"; \
 		exit 1; \
 	fi
+
+hosts-snippet: ## Print /etc/hosts lines for the private hostnames (no DNS needed)
+	python3 scripts/hosts-snippet.py
+
+caddy-root-cert: ## Export Caddy's internal root CA to trust on Mac/iOS (see script for steps)
+	sh scripts/caddy-root-cert.sh
