@@ -5,7 +5,7 @@
 # The baseline contains no secrets.
 set -euo pipefail
 
-BASELINE_DIR="$(cd "$(dirname "$0")/../baseline" && pwd)"
+BASELINE_DIR="${BASELINE_DIR:-$(cd "$(dirname "$0")/../baseline" && pwd)}"
 mkdir -p "$BASELINE_DIR"
 
 # Where we are running this (the fresh install)
@@ -51,13 +51,13 @@ run "ss -H -tlnp 2>/dev/null | sort" > "$OUT/listening-ports.txt"
 echo "==> UFW status"
 run "ufw status verbose 2>/dev/null || echo 'UFW not installed or inactive'" > "$OUT/ufw-status.txt"
 
-# 7. Sysctl overrides
+# 7. Sysctl overrides (plus the single value verify-clean asserts)
 echo "==> Sysctl overrides"
-run "sysctl -a 2>/dev/null | grep -v '^net\\.ipv4\\.ip_nonlocal_bind' | sort" > "$OUT/sysctl.txt"
+run "sysctl -a 2>/dev/null | grep -v '^net\\.ipv4\\.ip_nonlocal_bind' | sort; sysctl -n net.ipv4.ip_nonlocal_bind 2>/dev/null | sed 's/^/net.ipv4.ip_nonlocal_bind = /'" > "$OUT/sysctl.txt"
 
 # 8. Files under /opt, /srv, /data, /var/lib (just structure, no contents)
 echo "==> Directory structure under /opt /srv /data /var/lib"
-run "find /opt /srv /data /var/lib -type d 2>/dev/null | sort" > "$OUT/dirs.txt"
+run "find /opt /srv /data /var/lib /mnt -type d 2>/dev/null | sort" > "$OUT/dirs.txt"
 
 # 9. Network links
 echo "==> Network links"

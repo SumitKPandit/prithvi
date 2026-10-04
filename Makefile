@@ -55,28 +55,15 @@ teardown: ## Remove everything deployed by the repo (confirms; asks about data d
 
 verify-clean: ## Diff the current server state against the baseline in baseline/ (allowed: updates, newer kernels, bootstrap files)
 	@echo "Verifying server state is clean (matches baseline)..."
-	@if [ ! -d "baseline" ] || [ ! "$(ls baseline 2>/dev/null)" ]; then \
-		echo "ERROR: baseline/ directory is empty or missing. Run make baseline first."; \
+	@if [ ! -d "baseline" ] || [ ! "$$(ls baseline 2>/dev/null)" ]; then \
+		echo "ERROR: baseline/ directory is empty or missing. Capture it from a fresh Ubuntu 26.04 install first (see README 'verify-clean')."; \
 		exit 1; \
 	fi
-	@echo "Baseline captured from a fresh Ubuntu install."
-	@echo "Diffing server state against baseline..."
-	@# Run from the Mac; compare target vs baseline files.
-	@# Allowed diff items are documented in README; anything else needs investigation.
-	ssh g3plus "\
-		echo '=== packages ===' && dpkg-query -W | sort && \
-		echo '=== /etc files ===' && find /etc -type f | grep -vE '(/ssh/ssh_host_|/systemd/|/apt/|/cups/|/logrotate.d/)' | sort && \
-		echo '=== systemd units ===' && systemctl list-unit-files --state=enabled --no-legend | sort && \
-		echo '=== users/groups ===' && getent passwd | sort && getent group | sort && \
-		echo '=== listening ports ===' && ss -H -tlnp 2>/dev/null | sort && \
-		echo '=== ufw ===' && ufw status verbose 2>/dev/null || echo 'UFW not installed' && \
-		echo '=== sysctl ===' && sysctl -a 2>/dev/null | grep -v '^net\.ipv4\.ip_nonlocal_bind' | sort && \
-		echo '=== dirs under /opt /srv /data /var/lib ===' && find /opt /srv /data /var/lib -type d 2>/dev/null | sort && \
-		echo '=== kernel ===' && uname -r \
-	" > /tmp/baseline-diff.log 2>&1 || true
-
-	@echo "Diff saved to /tmp/baseline-diff.log"
-	@echo "Review the diff and adjust README/allowed-list if needed."
+	@if [ ! -f "baseline/manifest.yaml" ]; then \
+		echo "ERROR: baseline/manifest.yaml is missing (it documents where the baseline came from)."; \
+		exit 1; \
+	fi
+	sh scripts/verify-clean.sh
 
 baseline: ## Capture baseline state from a FRESH Ubuntu install (run on server, not on g3plus)
 	sh scripts/capture-baseline.sh
