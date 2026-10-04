@@ -163,10 +163,6 @@ services:
       - "127.0.0.1:{{ jellyseerr_port }}:5055"
     restart: unless-stopped
     mem_limit: {{ media_mem_limits.jellyseerr }}
-    # Tested live on 2.7.3 (served 307 with the same flags).
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
     # No curl/wget in this image; Node's fetch works (node >= 18).
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:5055').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]

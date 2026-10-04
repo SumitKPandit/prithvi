@@ -281,20 +281,34 @@
     # before UFW's INPUT chains), so the DOCKER-USER chain is their only
     # guard. The security role installs the rule and the boot unit that
     # re-applies it; assert both stay in place.
-    - name: The DOCKER-USER rule keeps port 3000 Tailscale-only
+    - name: The DOCKER-USER rules gate port 3000 on physical interfaces
+      # noqa: risky-shell-pipe
       # Dokploy's admin UI is published host-mode by the swarm and therefore
-      # invisible to UFW. iptables -C only tests the rule exists; rc 0 = yes.
+      # invisible to UFW. The rule must drop only traffic arriving on a
+      # physical interface (otherwise it eats forwarded container traffic,
+      # which is what broke Caddy -> Homepage:3000).
+      ansible.builtin.shell: |
+        ok=1
+        for t in iptables ip6tables; do
+          $t -S DOCKER-USER | grep -qE -- "-i (enp|wl)[a-z0-9]+ .*--dport 3000 .*DROP" || ok=0
+        done
+        [ $ok -eq 1 ]
+      changed_when: false
+      register: port3000_rule
+      failed_when: port3000_rule.rc != 0
+    - name: The old overbroad rule is gone
       ansible.builtin.command:
         argv: [iptables, -C, DOCKER-USER, -p, tcp, --dport, "3000", "!", -i, tailscale0, -j, DROP]
       changed_when: false
       failed_when: false
-      register: port3000_rule
-    - name: Assert the port 3000 rule
+      register: port3000_old_rule
+    - name: Assert the old overbroad rule is removed
       ansible.builtin.assert:
-        that: port3000_rule.rc == 0
+        that: port3000_old_rule.rc != 0
         fail_msg: >-
-          The DOCKER-USER rule for port 3000 is gone;
-          Dokploy's admin UI is reachable from beyond Tailscale.
+          The old DOCKER-USER rule (dport 3000, deny-all-but-tailscale0)
+          is back; it breaks Caddy reaching Homepage on :3000. Run the
+          docker-user-rules.sh script.
     - name: The rule is re-applied on boot
       ansible.builtin.systemd:
         name: docker-user-rules.service

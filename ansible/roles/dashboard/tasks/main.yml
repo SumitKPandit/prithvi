@@ -29,7 +29,7 @@
     dest: "{{ appdata_root }}/homepage/config/{{ item | basename | splitext | first }}.yaml"
     owner: media
     group: media
-    mode: "0644"
+    mode: "0640"
   loop:
     - homepage-settings.j2
     - homepage-services.j2

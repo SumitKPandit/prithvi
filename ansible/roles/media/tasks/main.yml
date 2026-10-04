@@ -147,9 +147,11 @@
 # strip the world bits from what already exists. qBittorrent rewrites its own
 # config on exit, so the UMASK line is what keeps it sticky going forward.
 - name: Strip world access from appdata files and directories
+  # Files only: stripping group/world x on directories broke container
+  # processes that drop to a non-owner uid (jellyseerr -> node). Directory
+  # traversal stays 0775; the secrets concern was the files.
   ansible.builtin.shell: >-
-    find {{ appdata_root }} -type f -perm -o=r -print -exec chmod o-r {} +;
-    find {{ appdata_root }} -type d -perm -o=x -print -exec chmod o-x {} +
+    find {{ appdata_root }} -type f -perm -o=r -print -exec chmod o-r {} +
   changed_when: "appdata_chmod.stdout | length > 0"
   register: appdata_chmod
   tags: [media]

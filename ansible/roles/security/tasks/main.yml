@@ -66,6 +66,57 @@
     comment: SSH from LAN
   tags: [ufw, security]
 
+# F-08: the swarm control plane must never be reachable from off-box, not
+# even via tailscale0. Single-node: no quorum/overlay peer exists. Ordered
+# (by rule number) BEFORE the tailscale0 accept so the accept does not win.
+- name: Deny the Docker Swarm control port 2377 (F-08)
+  community.general.ufw:
+    rule: deny
+    port: "2377"
+    proto: tcp
+    insert: 2
+    comment: Swarm Raft is local-only
+  tags: [ufw, security]
+
+- name: Deny the Docker Swarm member port 7946 tcp (F-08)
+  community.general.ufw:
+    rule: deny
+    port: "7946"
+    proto: tcp
+    insert: 3
+    comment: Swarm member is local-only
+  tags: [ufw, security]
+
+- name: Deny the Docker Swarm member port 7946 udp (F-08)
+  community.general.ufw:
+    rule: deny
+    port: "7946"
+    proto: udp
+    insert: 4
+    comment: Swarm member is local-only
+  tags: [ufw, security]
+
+- name: Deny the Docker Swarm overlay port 4789 (F-08)
+  community.general.ufw:
+    rule: deny
+    port: "4789"
+    proto: udp
+    insert: 5
+    comment: Swarm overlay is local-only
+  tags: [ufw, security]
+
+# The rule below was missing from the role (it existed only manually on the
+# server, in the 10-rule drift set). Caddy serves HTTPS on the LAN; without
+# it LAN clients could not reach the proxy at all.
+- name: Allow Caddy HTTPS from the LAN
+  community.general.ufw:
+    rule: allow
+    src: "{{ lan_cidr }}"
+    port: "443"
+    proto: tcp
+    comment: LAN HTTPS access via Caddy
+  tags: [ufw, security]
+
 - name: Allow everything in on tailscale0 (SSH from the road, private services)
   community.general.ufw:
     rule: allow
@@ -236,12 +287,24 @@
       #!/bin/sh
       # Idempotent rules for the DOCKER-USER iptables chain. Docker never
       # flushes this chain; rules vanish on reboot, hence the systemd unit.
+      #
+      # The old rule dropped EVERY non-tailscale0 ingress to dport 3000,
+      # which also ate forwarded bridge-to-bridge traffic: Caddy could no
+      # longer reach Homepage on :3000 (502). The drop must apply only to
+      # packets arriving on a *physical* interface, so it gates external
+      # access while internal Docker traffic flows.
       set -eu
-      RULE=" -p tcp --dport 3000 ! -i tailscale0 -j DROP"
-      if ! iptables -C DOCKER-USER $RULE 2>/dev/null; then
-        iptables -I DOCKER-USER 1 $RULE
-        echo ADDED
-      fi
+      # Purge the old overbroad form (dport 3000 from everything except
+      # tailscale0), which also broke Caddy's path to Homepage.
+      for table in iptables ip6tables; do
+        $table -D DOCKER-USER -p tcp --dport 3000 ! -i tailscale0 -j DROP 2>/dev/null || true
+      done
+      for iface in $(ls /sys/class/net | grep -vxE 'lo|tailscale0|docker0|docker_gwbridge|br-.*|veth.*|zt.*|cni.*'); do
+        for table in iptables ip6tables; do
+          rule="-i $iface -p tcp --dport 3000 -j DROP"
+          $table -C DOCKER-USER $rule 2>/dev/null || { $table -I DOCKER-USER 1 $rule; echo added; }
+        done
+      done
     dest: /usr/local/sbin/docker-user-rules.sh
     owner: root
     group: root
@@ -250,10 +313,11 @@
 
 - name: Apply the DOCKER-USER rules (Dokploy 3000 is Tailscale-only)
   # The swarm publishes Dokploy's admin port 3000 host-mode on 0.0.0.0;
-  # UFW cannot see that path, so enforce it here.
+  # UFW cannot see that path, so enforce it here. Runs every apply and
+  # reports changed only when the rules were actually added.
   ansible.builtin.command: /usr/local/sbin/docker-user-rules.sh
   register: docker_user_rules
-  changed_when: "'ADDED' in docker_user_rules.stdout"
+  changed_when: "'added' in docker_user_rules.stdout"
   tags: [ufw, security]
 
 - name: Re-apply the DOCKER-USER rules on boot (they do not survive reboots)
