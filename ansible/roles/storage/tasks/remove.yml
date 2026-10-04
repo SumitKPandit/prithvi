@@ -23,14 +23,25 @@
     state: absent
   ignore_errors: "{{ ansible_check_mode }}"
 
-- name: Remove appdata root if empty
+- name: Remove appdata root (DATA LOSS, only with teardown_data=yes)
+  # Ansible's file state=absent RECURSES even on non-empty directories, so
+  # the old "if empty" name was a lie; gate it explicitly.
   ansible.builtin.file:
     path: "{{ appdata_root }}"
     state: absent
+  when: teardown_data | default(false) | bool
   ignore_errors: "{{ ansible_check_mode }}"
 
-- name: Remove stacks root if empty
+- name: Remove stacks root (CONFIG LOSS, only with teardown_data=yes)
   ansible.builtin.file:
     path: "{{ stacks_root }}"
     state: absent
+  when: teardown_data | default(false) | bool
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Remove the data root (DATA LOSS, only with teardown_data=yes)
+  ansible.builtin.file:
+    path: "{{ data_root }}"
+    state: absent
+  when: teardown_data | default(false) | bool
   ignore_errors: "{{ ansible_check_mode }}"

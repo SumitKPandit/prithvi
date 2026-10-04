@@ -22,9 +22,9 @@ echo "dokploy disabled: skipping the postgres dump"
 # against the bind-mounted file (safe while the app runs; handles WAL).
 # kuma.db only exists once the admin account has been created in the UI -
 # until then there is nothing to dump.
-if [ -f /opt/appdata/uptime-kuma/kuma.db ]; then
-  sqlite3 /opt/appdata/uptime-kuma/kuma.db \
-    ".backup /opt/appdata/uptime-kuma/kuma.db.bak"
+if [ -f {{ appdata_root }}/uptime-kuma/kuma.db ]; then
+  sqlite3 {{ appdata_root }}/uptime-kuma/kuma.db \
+    ".backup {{ appdata_root }}/uptime-kuma/kuma.db.bak"
 else
   echo "uptime-kuma: no kuma.db yet (admin not created), skipping"
 fi

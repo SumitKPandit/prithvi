@@ -11,6 +11,21 @@
       ansible.builtin.set_fact:
         secrets: "{{ lookup('community.sops.sops', 'secrets.sops.yaml') | from_yaml }}"
       tags: [always]
+    - name: Announce what is silently skipped (missing secrets)
+      ansible.builtin.debug:
+        msg: >-
+          SKIPPED (missing secret): hermes[hermes_openrouter_api_key],
+          tunnel[cloudflare_tunnel_token],
+          dns-records+real-certs[cloudflare_api_token],
+          drive-backup[rclone_drive_token],
+          jellyfin-wizard[jellyfin_admin_password],
+          disk-check-timer[uptime_kuma_disk_push_token],
+          kuma-backup-push[uptime_kuma_backup_push_token],
+          kuma-telegram[telegram_bot_token_uptime_kuma],
+          hermes-telegram[hermes_telegram_bot_token],
+          vpn[vpn_provider];
+          current: see `make secrets-check`.
+      tags: [always]
   roles:
     - { role: base, tags: [base] }
     - { role: docker, tags: [docker] }

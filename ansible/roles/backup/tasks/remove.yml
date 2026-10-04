@@ -37,21 +37,25 @@
   ansible.builtin.file:
     path: /etc/rclone/rclone.conf
     state: absent
+  when: teardown_data | default(false) | bool
 
 - name: Remove restic password file
   ansible.builtin.file:
     path: /etc/restic.pass
     state: absent
+  when: teardown_data | default(false) | bool
 
 - name: Remove local restic repository
   ansible.builtin.file:
     path: "{{ backup_root }}/restic"
     state: absent
+  when: teardown_data | default(false) | bool
 
 - name: Remove backup dump directory
   ansible.builtin.file:
     path: "{{ backup_root }}/dumps"
     state: absent
+  when: teardown_data | default(false) | bool
 
 - name: Remove kuma push env (shared with security role)
   ansible.builtin.file:
@@ -62,3 +66,4 @@
   ansible.builtin.file:
     path: "{{ backup_root }}"
     state: absent
+  when: teardown_data | default(false) | bool

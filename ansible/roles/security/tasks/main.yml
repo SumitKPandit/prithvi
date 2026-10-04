@@ -20,6 +20,21 @@
   notify: Reload sshd
   tags: [ssh, security]
 
+# Belt-and-braces for the sshd drop-in above (F-27): cloud-init re-seeds
+# 50-cloud-init.conf on its own schedule; telling cloud-init itself to stop
+# issuing password auth survives a future cloud-init run.
+- name: Tell cloud-init to never re-enable password auth
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible. cloud-init writes ssh_pwauth from this into its
+      # sshd drop-in on future runs; keep password auth off there too.
+      ssh_pwauth: false
+    dest: /etc/cloud/cloud.cfg.d/99-no-password-auth.cfg
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [ssh, security]
+
 # Firewall. Rules go in BEFORE enabling so the SSH session is never cut off.
 # Docker-published ports bypass UFW entirely; that is handled separately by
 # binding every published port to a specific address (see README).
@@ -89,8 +104,15 @@
   # open, and the box silently stays unpatched.
   ansible.builtin.copy:
     content: |
+      # clear first: stock /etc/apt/apt.conf.d/50unattended-upgrades allows
+      # the whole archive; apt merges list assignments across files, so the
+      # repository must be emptied before re-adding the origins we want.
+      # Drop-in sorts AFTER 50unattended-upgrades, which makes the clear win.
+      #clear Unattended-Upgrade::Allowed-Origins;
       Unattended-Upgrade::Allowed-Origins {
           "${distro_id}:${distro_codename}-security";
+          "${distro_id}ESMApps:${distro_codename}-apps-security";
+          "${distro_id}ESM:${distro_codename}-infra-security";
       };
       Unattended-Upgrade::Automatic-Reboot "true";
       Unattended-Upgrade::Automatic-Reboot-Time "21:30";

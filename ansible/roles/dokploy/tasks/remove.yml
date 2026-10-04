@@ -38,8 +38,26 @@
     state: absent
   ignore_errors: "{{ ansible_check_mode }}"
 
-- name: Remove dokploy data directory if empty
+- name: List Dokploy named volumes
+  ansible.builtin.command: docker volume ls -q -f name=dokploy
+  changed_when: false
+  failed_when: false
+  ignore_errors: "{{ ansible_check_mode }}"
+  register: docker_volumes
+
+- name: Remove Dokploy named volumes (data loss)
+  # Dokploy's state lives in named volumes (dokploy-postgres, ...); removed
+  # only when the operator explicitly asks for data deletion.
+  ansible.builtin.command: docker volume rm -f {{ item }}
+  loop: "{{ docker_volumes.stdout_lines | default([]) }}"
+  when: teardown_data | default(false) | bool
+  changed_when: true
+  failed_when: false
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Remove the remaining Dokploy config directory (data loss)
   ansible.builtin.file:
-    path: /opt/appdata/dockge
+    path: /etc/dokploy
     state: absent
+  when: teardown_data | default(false) | bool
   ignore_errors: "{{ ansible_check_mode }}"

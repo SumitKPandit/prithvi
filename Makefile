@@ -1,7 +1,7 @@
 # Thin wrappers around the real commands. Everything runs from ansible/ per repo
 # convention. Run `make` with no target to see this list.
 
-.PHONY: deps bootstrap check apply verify lint fmt secrets-init secrets-edit apt-upgrade teardown verify-clean baseline
+.PHONY: deps bootstrap check apply verify lint fmt secrets-init secrets-edit secrets-check apt-upgrade teardown verify-clean baseline
 
 deps: ## Install Ansible collections and pre-commit hook
 	# --force also installs into ~/.ansible/collections when the collections
@@ -21,9 +21,10 @@ apply: ## Apply everything for real
 verify: ## Run the verification playbook (fails loudly if anything is wrong)
 	cd ansible && ansible-playbook verify.yml
 
-lint: ## yamllint + ansible-lint
+lint: ## yamllint + ansible-lint + VPN compose render check
 	yamllint .
 	ansible-lint
+	cd ansible && ansible-playbook vpn-check.yml -e vpn_enabled=true && docker compose --project-directory /tmp/vpncheck config -q && rm -rf /tmp/vpncheck
 
 secrets-init: ## Create the age key (outside the repo) and the encrypted secrets file
 	scripts/secrets-init.sh
@@ -31,16 +32,22 @@ secrets-init: ## Create the age key (outside the repo) and the encrypted secrets
 secrets-edit: ## Edit ansible/secrets.sops.yaml with SOPS
 	sops ansible/secrets.sops.yaml
 
+secrets-check: ## List EMPTY secrets (names only) and what each unlocks
+	sh scripts/secrets-check.sh
+
 apt-upgrade: ## Manual OS + Docker/Tailscale package upgrades on the server
 	ssh g3plus 'sudo apt update && sudo apt full-upgrade && systemctl is-active docker tailscaled'
 
-teardown: ## Remove everything deployed by the repo (requires -e confirm_teardown=yes)
+teardown: ## Remove everything deployed by the repo (confirms; asks about data deletion)
 	@echo "WARNING: This will remove all deployed services and configurations!"
-	@read -p "Are you sure? Type 'yes' to confirm: " CONFIRM; \
+	@read -p "Type 'yes' to confirm: " CONFIRM; \
 	if [ "$$CONFIRM" = "yes" ]; then \
-		echo "Running teardown..."; \
-		echo "Running teardown from ansible/teardown.yml"; \
-		ssh g3plus 'ansible-playbook ansible/teardown.yml -e confirm_teardown=yes'; \
+		read -p "ALSO delete DATA and BACKUPS (/data, /opt/appdata, /opt/backups, docker volumes)? Type 'yes' to confirm: " DATACONFIRM; \
+		if [ "$$DATACONFIRM" = "yes" ]; then \
+			cd ansible && ansible-playbook teardown.yml -e confirm_teardown=yes -e teardown_data=yes; \
+		else \
+			cd ansible && ansible-playbook teardown.yml -e confirm_teardown=yes; \
+		fi; \
 	else \
 		echo "Teardown aborted"; \
 		exit 1; \

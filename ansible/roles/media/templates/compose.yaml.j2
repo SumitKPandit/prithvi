@@ -34,7 +34,7 @@ services:
       retries: 3
       start_period: 30s
 
-{%- if vpn_enabled %}
+{% if vpn_enabled %}
   gluetun:
     image: {{ gluetun_image }}
     container_name: gluetun
@@ -53,7 +53,7 @@ services:
       - "{{ lan_ip }}:{{ qbittorrent_torrent_port }}:{{ qbittorrent_torrent_port }}/udp"
     restart: unless-stopped
     mem_limit: {{ media_mem_limits.gluetun }}
-{%- endif %}
+{% endif %}
 
   prowlarr:
     image: {{ prowlarr_image }}
@@ -62,6 +62,8 @@ services:
       - PUID={{ media_uid }}
       - PGID={{ media_gid }}
       - TZ={{ container_timezone }}
+      # LSIO writes its own config files; deny world access (they hold API keys/hashes)
+      - UMASK=027
     volumes:
       - {{ appdata_root }}/prowlarr:/config
     ports:
@@ -82,6 +84,8 @@ services:
       - PUID={{ media_uid }}
       - PGID={{ media_gid }}
       - TZ={{ container_timezone }}
+      # LSIO writes its own config files; deny world access (they hold API keys/hashes)
+      - UMASK=027
     volumes:
       # Sees both torrents and media: hardlinks + atomic moves need the same
       # filesystem mounted at the same path as qBittorrent uses.
@@ -105,6 +109,8 @@ services:
       - PUID={{ media_uid }}
       - PGID={{ media_gid }}
       - TZ={{ container_timezone }}
+      # LSIO writes its own config files; deny world access (they hold API keys/hashes)
+      - UMASK=027
     volumes:
       - {{ appdata_root }}/radarr:/config
       - {{ data_root }}:/data
@@ -126,6 +132,8 @@ services:
       - PUID={{ media_uid }}
       - PGID={{ media_gid }}
       - TZ={{ container_timezone }}
+      # LSIO writes its own config files; deny world access (they hold API keys/hashes)
+      - UMASK=027
     volumes:
       - {{ appdata_root }}/bazarr:/config
       - {{ data_root }}:/data
@@ -147,12 +155,18 @@ services:
       - PUID={{ media_uid }}
       - PGID={{ media_gid }}
       - TZ={{ container_timezone }}
+      # LSIO writes its own config files; deny world access (they hold API keys/hashes)
+      - UMASK=027
     volumes:
       - {{ appdata_root }}/jellyseerr:/app/config
     ports:
       - "127.0.0.1:{{ jellyseerr_port }}:5055"
     restart: unless-stopped
     mem_limit: {{ media_mem_limits.jellyseerr }}
+    # Tested live on 2.7.3 (served 307 with the same flags).
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     # No curl/wget in this image; Node's fetch works (node >= 18).
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:5055').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
@@ -166,10 +180,22 @@ services:
     container_name: flaresolverr
     environment:
       - TZ={{ container_timezone }}
+      - UMASK=027
     ports:
       - "127.0.0.1:{{ flaresolverr_port }}:8191"
     restart: unless-stopped
     mem_limit: {{ media_mem_limits.flaresolverr }}
+    # Tested live (docker run with the same flags served 200): the image's
+    # own user needs no caps, unlike the root-starting LinuxServer.io images.
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8191/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   jellyfin:
     image: {{ jellyfin_image }}
@@ -178,6 +204,8 @@ services:
       - PUID={{ media_uid }}
       - PGID={{ media_gid }}
       - TZ={{ container_timezone }}
+      # LSIO writes its own config files; deny world access (they hold API keys/hashes)
+      - UMASK=027
     volumes:
       - {{ appdata_root }}/jellyfin:/config
       # Media mounted read-only: Jellyfin never needs to write to the library.

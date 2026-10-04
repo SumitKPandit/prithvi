@@ -10,7 +10,7 @@
 
 - name: Install admin tools
   ansible.builtin.apt:
-    name: [tmux, lm-sensors, smartmontools, nvme-cli, vainfo, intel-gpu-tools]
+    name: [tmux, lm-sensors, smartmontools, nvme-cli, vainfo, intel-gpu-tools, htop]
     state: present
     update_cache: true
     cache_valid_time: 3600

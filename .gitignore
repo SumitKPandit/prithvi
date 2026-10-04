@@ -21,3 +21,17 @@ keys.txt
 id_ed25519*
 id_rsa*
 .vault_pass*
+
+# Backup + cloud credentials (never commit)
+rclone.conf
+restic.pass
+.netrc
+credentials
+baseline/*
+!baseline/manifest.yaml
+capture-baseline/
+
+*.sql.gz
+
+# Local test output
+/tmp/

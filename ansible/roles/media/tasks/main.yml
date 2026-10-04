@@ -39,6 +39,8 @@
     - bazarr
     - jellyseerr
     - jellyfin
+    # flaresolverr was excluded before, leaving the dir root:root (F-34).
+    - flaresolverr
   tags: [media]
 
 - name: Create the stack directory
@@ -139,6 +141,18 @@
     state: present
   # --check cannot deploy (the rendered files do not exist yet); see README.
   ignore_errors: "{{ ansible_check_mode }}"
+
+# Config files under /opt/appdata hold API keys, hashes and session cookies;
+# the images default to world-readable (UMASK=027 above stops new files), so
+# strip the world bits from what already exists. qBittorrent rewrites its own
+# config on exit, so the UMASK line is what keeps it sticky going forward.
+- name: Strip world access from appdata files and directories
+  ansible.builtin.shell: >-
+    find {{ appdata_root }} -type f -perm -o=r -print -exec chmod o-r {} +;
+    find {{ appdata_root }} -type d -perm -o=x -print -exec chmod o-x {} +
+  changed_when: "appdata_chmod.stdout | length > 0"
+  register: appdata_chmod
+  tags: [media]
 
 # Section 3+4: wait for the APIs, then wire the apps together. Skipped in
 # --check because nothing is actually deployed then.

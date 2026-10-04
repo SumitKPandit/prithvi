@@ -1,0 +1,41 @@
+---
+# Renders the media stack with vpn_enabled=true and validates it with
+# `docker compose config -q`. Runs on the Mac (localhost); compose needs no
+# running Docker daemon for config validation.
+- name: Validate the VPN-enabled media stack compose
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all.yml
+    - roles/media/defaults/main.yml
+  vars:
+    render_gid: "991"
+  # vpn_enabled=true is passed in with -e from `make lint` (extra vars beat
+  # group_vars; play vars: alone did not override the group file).
+  tasks:
+    - name: Load secrets (VPN triple is empty; the env still renders)
+      ansible.builtin.set_fact:
+        secrets: "{{ lookup('community.sops.sops', 'secrets.sops.yaml') | from_yaml }}"
+
+    - name: Create the temp dir
+      ansible.builtin.file:
+        path: /tmp/vpncheck
+        state: directory
+        mode: "0755"
+
+    - name: Render the compose file
+      ansible.builtin.template:
+        src: roles/media/templates/compose.yaml.j2
+        dest: /tmp/vpncheck/compose.yaml
+        mode: "0644"
+
+    - name: Render the media .env (VPN creds as placeholders)
+      ansible.builtin.template:
+        src: roles/media/templates/env.j2
+        dest: /tmp/vpncheck/.env
+        mode: "0600"
+
+    - name: Validate the compose file
+      ansible.builtin.command:
+        argv: [docker, compose, --project-directory, /tmp/vpncheck, config, -q]
+      changed_when: false

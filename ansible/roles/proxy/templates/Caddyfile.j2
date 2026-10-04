@@ -21,7 +21,12 @@
 {% for item in private_services %}
   @{{ item.name }} host {{ item.name }}.{{ private_host_suffix }}
   handle @{{ item.name }} {
+{% if item.name == 'qbittorrent' and vpn_enabled %}
+    # VPN on: qBittorrent shares gluetun's net namespace.
+    reverse_proxy gluetun:{{ item.port }}
+{% else %}
     reverse_proxy {{ item.host }}:{{ item.port }}
+{% endif %}
   }
 {% endfor %}
 

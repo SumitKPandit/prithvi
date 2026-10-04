@@ -14,6 +14,14 @@
     state: absent
   loop:
     - "{{ stacks_root }}/dashboard"
+  # Stack dir removal is config-only; the appdata configs below are data.
+
+- name: Remove dashboard config directories (data loss)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
     - "{{ appdata_root }}/homepage"
     - "{{ appdata_root }}/dockge"
     - "{{ appdata_root }}/uptime-kuma"
+  when: teardown_data | default(false) | bool

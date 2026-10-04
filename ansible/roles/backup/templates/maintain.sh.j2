@@ -42,10 +42,10 @@ restic check --read-data-subset=1/7
 
 STEP=restore-drill
 # Prove a restore actually works: pull one known file out of the latest
-# snapshot. /opt/stacks/proxy/compose.yaml is tiny and always present.
+# snapshot. {{ stacks_root }}/proxy/compose.yaml is tiny and always present.
 RESTORE_DIR=$(mktemp -d)
-restic restore latest --include /opt/stacks/proxy/compose.yaml -t "$RESTORE_DIR"
-test -s "$RESTORE_DIR/opt/stacks/proxy/compose.yaml"
+restic restore latest --include {{ stacks_root }}/proxy/compose.yaml -t "$RESTORE_DIR"
+test -s "$RESTORE_DIR{{ stacks_root }}/proxy/compose.yaml"
 rm -rf "$RESTORE_DIR"
 
 trap - EXIT

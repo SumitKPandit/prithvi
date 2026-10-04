@@ -89,12 +89,15 @@
 # Dokploy upgrades can re-create Traefik with ports again, so this runs on
 # every apply: recreate identical to the installer (v0.30.8) minus the -p flags.
 - name: Recreate Dokploy's Traefik without host ports
+  # noqa: risky-shell-pipe (the health-cmd intentionally greps ps output)
   ansible.builtin.shell: |
     docker rm -f dokploy-traefik
     docker run -d \
       --name dokploy-traefik \
       --restart always \
       --network dokploy-network \
+      --health-cmd "ps aux | grep -v grep | grep traefik >/dev/null || exit 1" \
+      --health-interval 30s --health-timeout 5s --health-retries 3 \
       -v /etc/dokploy/traefik/traefik.yml:/etc/traefik/traefik.yml \
       -v /etc/dokploy/traefik/dynamic:/etc/dokploy/traefik/dynamic \
       -v /var/run/docker.sock:/var/run/docker.sock:ro \
@@ -103,6 +106,37 @@
     traefik_ports.rc != 0
     or '"HostPort":"80"' in traefik_ports.stdout
     or '"HostPort":"443"' in traefik_ports.stdout
+  changed_when: true
+  tags: [dokploy]
+
+# dokploy-postgres runs as a Swarm service; its task must get a healthcheck
+# from the role since the installer sets none.
+- name: Read the dokploy-postgres service spec
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - inspect
+      - dokploy-postgres
+      - --format
+      - "{{ '{{json .Spec.TaskTemplate.ContainerSpec.Healthcheck}}' }}"
+  changed_when: false
+  failed_when: false
+  register: dokploy_pg_hc
+  tags: [dokploy]
+
+- name: Add a healthcheck to the dokploy-postgres service (when missing)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - --health-cmd=pg_isready -U dokploy -d dokploy
+      - --health-interval=30s
+      - --health-timeout=5s
+      - --health-retries=3
+      - dokploy-postgres
+  when: "'pg_isready' not in (dokploy_pg_hc.stdout | default(''))"
   changed_when: true
   tags: [dokploy]
 

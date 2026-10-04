@@ -10,6 +10,21 @@
       ansible.builtin.set_fact:
         secrets: "{{ lookup('community.sops.sops', 'secrets.sops.yaml') | from_yaml }}"
       tags: [always]
+    - name: Announce what is silently skipped (missing secrets)
+      ansible.builtin.debug:
+        msg: >-
+          SKIPPED (missing secret): hermes[hermes_openrouter_api_key],
+          tunnel[cloudflare_tunnel_token],
+          dns-records+real-certs[cloudflare_api_token],
+          drive-backup[rclone_drive_token],
+          jellyfin-wizard[jellyfin_admin_password],
+          disk-check-timer[uptime_kuma_disk_push_token],
+          kuma-backup-push[uptime_kuma_backup_push_token],
+          kuma-telegram[telegram_bot_token_uptime_kuma],
+          hermes-telegram[hermes_telegram_bot_token],
+          vpn[vpn_provider];
+          current: see `make secrets-check`.
+      tags: [always]
   tasks:
     - name: SSH key login works (proven implicitly by this playbook connecting)
       ansible.builtin.debug:
@@ -192,7 +207,8 @@
       register: restart_policies
     - name: Assert each policy
       ansible.builtin.assert:
-        that: "{{ item.stdout != 'no' }}"
+        that:
+          - item.stdout != 'no'
         fail_msg: "Container {{ item.item }} has restart policy '{{ item.stdout }}'; expected unless-stopped/always."
       loop: "{{ restart_policies.results }}"
       loop_control: { label: "{{ item.item }}" }
@@ -435,3 +451,19 @@
         that: pg_dump_file.stat.exists and pg_dump_file.stat.size > 0
         fail_msg: "No postgres dump at {{ backup_root }}/dumps; run backup.service"
       when: pg_dump_file is not skipped
+
+    - name: Report stacks not deployed because their secret is empty
+      ansible.builtin.debug:
+        msg: "NOT DEPLOYED: {{ item.role }} (missing secret {{ item.key }})"
+      loop:
+        - { role: hermes, key: hermes_openrouter_api_key }
+        - { role: tunnel, key: cloudflare_tunnel_token }
+        - { role: DNS-records+real-certs, key: cloudflare_api_token }
+        - { role: drive-backup, key: rclone_drive_token }
+        - { role: jellyfin-auto-wizard, key: jellyfin_admin_password }
+        - { role: disk-usage-check.timer, key: uptime_kuma_disk_push_token }
+        - { role: kuma-backup-push, key: uptime_kuma_backup_push_token }
+        - { role: kuma-telegram, key: telegram_bot_token_uptime_kuma }
+        - { role: vpn, key: vpn_provider }
+      when: secrets[item.key] | default('') | length == 0
+      loop_control: { label: "{{ item.role }}" }

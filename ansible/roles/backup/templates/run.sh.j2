@@ -32,8 +32,9 @@ STEP=backup
 # the dump from backup-dump.sh is the authority.
 restic backup \
   --exclude /var/lib/docker/volumes/dokploy-postgres \
-  /opt/appdata \
-  /opt/stacks \
+  --exclude {{ appdata_root }}/uptime-kuma/mariadb \
+  {{ appdata_root }} \
+  {{ stacks_root }} \
   /etc/dokploy \
   /var/lib/docker/volumes \
   {{ backup_root }}/dumps

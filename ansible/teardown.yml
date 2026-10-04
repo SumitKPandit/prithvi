@@ -1,79 +1,95 @@
 ---
 # Teardown playbook: removes all deployed components in reverse dependency order.
-# Refuses to run unless -e confirm_teardown=yes is passed.
-# Data deletion (/data, /opt/appdata, database volumes) requires -e teardown_data=yes.
-# Finishes with a reboot to clear in-memory state (Docker bridges, iptables rules).
+#
+# - Refuses to run unless -e confirm_teardown=yes is passed.
+# - Data deletion (/data, /opt/appdata, /opt/backups, media/dashboard/Dokploy
+#   configs, Docker volumes) requires -e teardown_data=yes; a default teardown
+#   removes services and Ansible-managed configs but PRESERVES every byte of
+#   data and the restic backup repository.
+# - Reboot only happens with -e teardown_reboot=yes (never implicitly).
+# - Runs on the Mac against the server (`make teardown`); Ansible is not
+#   installed on the server itself.
 
-- name: Confirm teardown
-  ansible.builtin.command: echo "Proceeding with teardown of all Ansible-managed services"
-  register: confirm
-  changed_when: false
-  failed_when: confirm.rc != 0
+- name: Teardown g3plus
+  hosts: g3plus
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Load encrypted secrets into the secrets fact
+      ansible.builtin.set_fact:
+        secrets: "{{ lookup('community.sops.sops', 'secrets.sops.yaml') | from_yaml }}"
+      tags: [always]
+  tasks:
+    - name: Require explicit confirmation
+      ansible.builtin.assert:
+        that: confirm_teardown | default('') | bool
+        fail_msg: "Refusing to run without -e confirm_teardown=yes (make teardown prompts for it)."
 
-- name: Gather the user data decision
-  ansible.builtin.set_fact:
-    teardown_data: "{{ teardown_data | default('no') | bool }}"
+    - name: Normalize the data-deletion decision
+      ansible.builtin.set_fact:
+        teardown_data: "{{ teardown_data | default('no') | bool }}"
 
-- name: Remove backup role artifacts
-  ansible.builtin.include_role:
-    name: backup
-    tasks_from: remove
+    - name: Remove backup role artifacts
+      ansible.builtin.include_role:
+        name: backup
+        tasks_from: remove
 
-- name: Remove tunnel role artifacts
-  ansible.builtin.include_role:
-    name: tunnel
-    tasks_from: remove
+    - name: Remove tunnel role artifacts
+      ansible.builtin.include_role:
+        name: tunnel
+        tasks_from: remove
 
-- name: Remove dokploy role artifacts
-  ansible.builtin.include_role:
-    name: dokploy
-    tasks_from: remove
-  when: not teardown_data | bool or not (item is defined)
+    - name: Remove dokploy role artifacts
+      ansible.builtin.include_role:
+        name: dokploy
+        tasks_from: remove
 
-- name: Remove hermes role artifacts
-  ansible.builtin.include_role:
-    name: hermes
-    tasks_from: remove
+    - name: Remove hermes role artifacts
+      ansible.builtin.include_role:
+        name: hermes
+        tasks_from: remove
 
-- name: Remove dashboard role artifacts
-  ansible.builtin.include_role:
-    name: dashboard
-    tasks_from: remove
+    - name: Remove dashboard role artifacts
+      ansible.builtin.include_role:
+        name: dashboard
+        tasks_from: remove
 
-- name: Remove media role artifacts
-  ansible.builtin.include_role:
-    name: media
-    tasks_from: remove
-  when: not teardown_data | bool or not (item is defined)
+    - name: Remove proxy role artifacts
+      ansible.builtin.include_role:
+        name: proxy
+        tasks_from: remove
 
-- name: Remove proxy role artifacts
-  ansible.builtin.include_role:
-    name: proxy
-    tasks_from: remove
+    - name: Remove media role artifacts
+      ansible.builtin.include_role:
+        name: media
+        tasks_from: remove
 
-- name: Remove docker role artifacts
-  ansible.builtin.include_role:
-    name: docker
-    tasks_from: remove
+    - name: Remove storage role artifacts
+      ansible.builtin.include_role:
+        name: storage
+        tasks_from: remove
 
-- name: Remove tailscale role artifacts
-  ansible.builtin.include_role:
-    name: tailscale
-    tasks_from: remove
+    - name: Remove security role artifacts
+      ansible.builtin.include_role:
+        name: security
+        tasks_from: remove
 
-- name: Remove security role artifacts
-  ansible.builtin.include_role:
-    name: security
-    tasks_from: remove
+    - name: Remove tailscale role artifacts
+      ansible.builtin.include_role:
+        name: tailscale
+        tasks_from: remove
 
-- name: Remove base role artifacts (last, before reboot)
-  ansible.builtin.include_role:
-    name: base
-    tasks_from: remove
+    - name: Remove docker role artifacts
+      ansible.builtin.include_role:
+        name: docker
+        tasks_from: remove
 
-- name: Final reboot to clear in-memory state
-  # This clears Docker bridges, iptables rules, and any other runtime state.
-  # After the reboot, only SSH (key-only) and the sudoers file remain.
-  ansible.builtin.reboot:
-    reboot_timeout: 600
-  when: confirm is changed
+    - name: Remove base role artifacts
+      ansible.builtin.include_role:
+        name: base
+        tasks_from: remove
+
+    - name: Reboot to clear in-memory Docker bridges and iptables rules
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+      when: teardown_reboot | default('no') | bool

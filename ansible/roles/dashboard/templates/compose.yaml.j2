@@ -7,6 +7,8 @@ services:
       - PUID={{ media_uid }}
       - PGID={{ media_gid }}
       - TZ={{ container_timezone }}
+      # Without it Homepage rejects the Caddy vhost (F-06).
+      - HOMEPAGE_ALLOWED_HOSTS=homepage.{{ private_host_suffix }},localhost
     volumes:
       - {{ appdata_root }}/homepage/config:/app/config
     restart: unless-stopped
