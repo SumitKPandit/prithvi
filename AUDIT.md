@@ -421,7 +421,7 @@ role that is absent; also `make nas-format` referenced. See F-17.
 | A3-16 | torrents & media same fs | `stat -c %d` | **PASS** | both on `/dev/nvme0n1p2` (66306). |
 | A3-17 | disk/inodes | df | **PASS** | 6% of 476 GB, 2% inodes. |
 | A3-18 | SMART | smartctl | **PASS** | PASSED, 0% used, 0 errors, 41h on, 13 unsafe shutdowns. |
-| A3-19 | temps | sensors/smartctl | **FAIL** | package idles at +64 °C (BIOS high-performance); above the README's own 60 °C threshold (F-26). |
+| A3-19 | temps | sensors/smartctl | **WARN** | package idles at +64 °C (BIOS high-performance); the idle-temperature decision is yours (BIOS), not the repo's. |
 | A3-20 | memory/swap/load | free/uptime | **PASS** | 3.0/14.7 GB, 0 swap used, load ~0.3. |
 | A3-21 | fwupd history | fwupdmgr | **PASS** | No history. |
 | A4-01 | every listening socket | `ss -tulpn` | **PASS** | enumerated; only 22/443/6881/3000 + resolver/chrony/systemd + swarm. |
@@ -563,3 +563,110 @@ role that is absent; also `make nas-format` referenced. See F-17.
   leftovers were *not* removed — they are part of finding F-30; tell me and I
   will clean.
 - No server configuration was modified.
+
+---
+
+## Re-audit 2026-10-04 (secretless mode, no client devices)
+
+Scope: everything re-testable without a user secret, a second tailnet
+device, or a reboot/teardown. Statuses: `FIXED` / `ACCEPTED RISK` (reason)
+ / `WRONG FINDING` (evidence) / `OPEN` (what blocks) / `BLOCKED-BY-SECRET`
+(accepted while secrets are off; the row names what turns it on).
+`make lint` clean, `make apply` twice at `changed=0`, `make verify`
+passing (ok=74, failed=0), `make secrets-check` reviewed.
+
+### New incident found during this work: three unexplained reboots
+
+- boots ended ~09:08, ~09:36 and ~10:20 UTC (journal `list-boots`).
+- Each journal ends with **no** logind/shutdown request: the last lines are
+  routine (cron `run-parts`, sysstat collect, UFW multicast blocks). No
+  kernel panic, no OOM kill, no `reboot-required` flag, no `power key`
+  event, no matching unattended-upgrades schedule (auto-reboot is 21:30 UTC).
+  The lxd/snapd purge (09:59) and the UFW/ip6tables changes do not line up
+  with any of the three ends.
+- `smartctl -a /dev/nvme0`: `Unsafe Shutdowns` rose **13 → 21** — the
+  signature of hard power loss / reset without logging, not of a requested
+  shutdown. (`last` is unavailable: no `/var/run/utmp`.)
+- Not explained yet. Stage C (deliberate reboot test) **waits** until this
+  is. Watch `smartctl` Unsafe Shutdowns after the next event; journald is
+  already persistent (`/var/log/journal`).
+
+### Per-finding status
+
+| ID | Status | Before → after (evidence) |
+|---|---|---|
+| F-01 | FIXED | `teardown.yml` was an invalid play; now `hosts: g3plus`, `become: true`, all 12 roles' `remove.yml` in reverse order incl. `storage`, runs from the Mac (`make teardown`), needs `confirm_teardown=yes`, never reboots unless `teardown_reboot=yes`. `--syntax-check`, `--check`, `--check --diff` all clean. |
+| F-02 | FIXED | `or not (item is defined)` fragments gone; every destructive removal gated on `teardown_data`. Proved: default `--check --diff` only touches units/config scripts (no `/opt/appdata`, no `/opt/backups`, no stacks data); with `teardown_data=yes` it deletes `/opt/appdata/*`, `/opt/backups/restic`, `/opt/backups/dumps`, dokploy volumes, `/etc/dokploy`, `/data`. |
+| F-03 | BLOCKED-BY-SECRET | `cloudflare_api_token` + `cloudflare_tunnel_token` empty → no DNS, no tunnel, Caddy internal CA. Secretless fallback is now explicit + asserted. Turn-on: paste both tokens, `make apply`. |
+| F-04 | BLOCKED-BY-SECRET | `jellyfin_admin_password` empty → wizard open, `HardwareAccelerationType=none`. Turn-on: set it (role finishes the wizard) or the README manual checklist. NEEDS-HUMAN to claim. |
+| F-05 | FIXED | sqlite probe removed; dump is `mariadb-dump -u node -S /app/data/run/mariadb.sock kuma` (only socket identity the embedded MariaDB accepts; no password stored). `kuma.sql.gz` (1044 lines) in dumps; snapshot taken; restore to temp dir returns it intact; `restic check` clean. |
+| F-06 | FIXED | `HOMEPAGE_ALLOWED_HOSTS` set; `curl --resolve homepage…:443:192.168.0.2` → **200**. (Root cause was bigger: the old DOCKER-USER form ate Caddy→Homepage:3000. See F-09.) |
+| F-07 | BLOCKED-BY-SECRET | Kuma admin/monitors/tokens are hand work; `disk-usage-check.timer` installs but stays disabled while its token is empty (WARN, not FAIL). Turn-on: admin + push monitors + tokens, `make apply`. |
+| F-08 | FIXED (Medium, per correction) | UFW DENY 2377/tcp, 7946/tcp+udp, 4789/udp inserted **before** the tailscale0 accept, in the role. LAN `nmap`: all filtered; Dokploy swarm still 1/1. Tailnet-side gated by the same denies (UFW applies per-interface). |
+| F-09 | FIXED | `docker-user-rules.sh` writes the per-physical-interface DROP to **both** `iptables` and `ip6tables` (and deletes the old overbroad form); the boot unit re-runs the script. `iptables -S`/`ip6tables -S DOCKER-USER`: `-i wlp1s0` + `-i enp3s0` `--dport 3000 -j DROP` on both; old form gone. This also fixed the Homepage 502. |
+| F-10 | FIXED | The 10 manual LAN rules deleted (`ufw delete` 12→4; only 22, tailscale0, 443 LAN remain). 443-from-LAN kept (Caddy needs it) and encoded in the role. `verify.yml` now fails on ruleset drift. |
+| F-11 | FIXED | Jinja `{%-` newline-eater replaced; Caddy routes `qbittorrent` via `gluetun:8080` when `vpn_enabled`. `ansible/vpn-check.yml` renders with `vpn_enabled=true` + `docker compose config -q` runs in `make lint` (passes). |
+| F-12 | FIXED (as Tailscale-only, per decision) | No DNS name/Caddy route for Dokploy by design. Documented working addresses: SSH tunnel `ssh -L 3000:127.0.0.1:3000 g3plus` → `http://localhost:3000`, or `http://100.88.141.33:3000` from the tailnet. NEEDS-HUMAN to create the admin. |
+| F-13 | BLOCKED-BY-SECRET | `hermes_openrouter_api_key` empty → role skipped, no container. Turn-on: key (+ telegram + dashboard password), `make apply`. |
+| F-14 | BLOCKED-BY-SECRET | Same tokens as F-03. Turn-on: tunnel token, `make apply`. |
+| F-15 | FIXED (per correction) | Drop-in now starts with `#clear Unattended-Upgrade::Allowed-Origins;` then security + ESM only. `apt-config dump` → security only; `unattended-upgrade --dry-run -d` → `Allowed origins are: o=Ubuntu,a=resolute-security`. |
+| F-16 | FIXED | `main` and `full-draft` both pushed (later fix commits also pushed to `main`). |
+| F-17 | FIXED | `roles/nas/` built (asserts, UUID lists, never-touch Seagate guard, snapraid.conf, mergerfs pool, sync+scrub timers, `remove.yml`), `nas-format.yml` (+ `nas_format_confirm=yes`), `make nas-format`, wired + reverse-ordered in teardown. Tested `--check` only: inert when disabled; duplicate UUIDs / Seagate by_id / missing confirm / absent devices all refused, never touching a disk. |
+| F-18 | Machinery FIXED, data OPEN | `verify-clean` now really diffs: `scripts/verify-clean.sh` fetches live state, `scripts/verify-clean.py` compares against `baseline/` with a documented per-file allow-list (tested clean on same-state, fails loudly on an injected tcp/6666). `baseline/manifest.yaml` documents the capture. OPEN: the data files must come from a fresh x86_64 Ubuntu 26.04 VM (throwaway UTM VM chosen earlier; exact commands in README). Until captured, the target errors. |
+| F-19 | FIXED | `verify.yml` now asserts: listener allow-list (`scripts/check-listeners.py`, address+port policy), UFW ruleset + Swarm-deny ordering, ip6tables mirror, Homepage 200, cert issuer vs mode, Swarm denies, recyclarr timer + TRaSH profiles, every secret-conditional agreement, and reports missing-secret pieces as WARN `NOT DEPLOYED`. Passing. |
+| F-20 | NEEDS-HUMAN + partial FIX | Jellyseerr `/setup` stays hand work (README checklist). Dead keys handled: `internal_bazarr_api_key` is seeded into Bazarr on fresh installs only; `internal_jellyseerr_api_key` documented as reserved (Jellyseerr API keys are created in its UI). |
+| F-21 | FIXED | dokploy remove no longer touches `/opt/appdata/dockge`; named volumes + `/etc/dokploy` removed only with `teardown_data=yes`. |
+| F-22 | FIXED | `--exclude .../uptime-kuma/mariadb` in the restic scope (the `kuma.sql.gz` dump is the authority). Snapshot confirms the datadir is out. |
+| F-23 | FIXED (reconnect pending) | `sumit` removed from `lxd`; `lxd-installer`, `lxd-agent-loader`, `snapd` purged. Current SSH sessions still carry the old group list — **open a new session** (NEEDS-HUMAN, one line). |
+| F-24 | FIXED | `UMASK=027` on media containers; files-only world-bit strip (a directory strip regressed jellyseerr and was reverted with evidence). 0 world-readable files under `/opt/appdata`; `qBittorrent.conf` is 640. |
+| F-25 | Partial: flaresolverr FIXED, rest ACCEPTED RISK | flaresolverr: `cap_drop: [ALL]` + `no-new-privileges:true`, proven (healthy, 200). jellyseerr: **reverted with evidence** — `EACCES mkdir /app/config/logs/` (needs CAP_DAC_OVERRIDE on a media-owned dir). LSIO images (start as root) + Dockge/Dokploy/Homepage remain accepted risk; UIs are LAN/Tailscale-only per the network model. |
+| F-26 | FIXED | `that: "{{ item.stdout != 'no' }}"` → brace-free form. (The A3-19 temperature citation of F-26 was wrong and is corrected below.) |
+| F-27 | FIXED | `/etc/cloud/cloud.cfg.d/99-no-password-auth.cfg` (`ssh_pwauth: false`) added; `sshd -T` still shows `passwordauthentication no` (drop-in keeps winning). |
+| F-28 | FIXED via F-08 | Swarm ports are UFW-denied on all external interfaces; `docker_gwbridge` stays behind default-deny. |
+| F-29 | FIXED | `docker builder prune -af` reclaimed 2.4 GB; 0 dangling images; `htop` added to the base role. |
+| F-30 | FIXED | `/tmp/rebuild`, `/tmp/generate_commands.py` already gone; 5 stale `~/.ansible/tmp` dirs removed; no repo path recreates them. |
+| F-31 | FIXED | `.gitignore` covers `rclone.conf`, `restic.pass`, `.netrc`, `credentials`, `baseline/*` (except the committed `manifest.yaml`), `*.sql.gz`, `capture-baseline/` (deleted). |
+| F-32 | WRONG FINDING | `man smartd.conf`: "day of the week ... from 1 (Monday) to 7 (Sunday)" → `6` is **Saturday**. README "Sat 13:00" and the role comment were already correct; nothing changed. |
+| F-33 | OPEN (optional) | `acme_email` still empty (no expiry notices). Set it in `group_vars/all.yml` (not a secret); README documents it. |
+| F-34 | FIXED | flaresolverr added to the appdata loop; dir is media:media. |
+| F-35 | FIXED (documented) | Empty `/opt/stacks/media/.env` is by design when the VPN is off; README troubleshooting says so. |
+| F-36 | OPEN (NEEDS-HUMAN) | Tailscale-on-Mac instructions are in the README (real app from tailscale.com, remove the brew shim). |
+| F-37 | FIXED | flaresolverr healthcheck in compose (healthy); dokploy-traefik recreated once with `--health-cmd` → **healthy**; dokploy-postgres service healthcheck `pg_isready` (inspected in the service spec). |
+| F-38 | FIXED via F-09 | ip6tables DOCKER-USER now carries the same gates; unit re-applies both. |
+| F-39 | FIXED | Recyclarr pinned `ghcr.io/recyclarr/recyclarr:8.7.1`, profile-scoped one-shot + weekly `recyclarr.timer`, repo keys. Proven: profile 7 `WEB-1080p` (Sonarr, 37 CFs) + profile 7 `HD Bluray + WEB` (Radarr, 40 CFs); timer enabled+active. |
+| F-40 | FIXED (documented) | README troubleshooting: `rm -rf ~/.ansible/collections` + re-run pins one copy. |
+| F-41 | FIXED | Hooks ran and are committed; `pre-commit run --all-files` clean. |
+| F-42 | FIXED (documented) | README troubleshooting: `apt --fix-broken install` after a failed `full-upgrade`. |
+| F-43 | FIXED | Real tags documented (`--tags firewall`/`--tags remove` never existed); layout tree matches reality incl. `roles/nas/`. |
+
+### Cross-reference corrections (audit errata)
+
+- **A3-19 cited F-26 for temperature.** F-26 is the verify.yml deprecation fix. The citation is removed; temperature is WARN (your BIOS call).
+- **F-32 recorded as WRONG FINDING** with the `man smartd.conf` evidence above.
+- **F-08 severity Medium** (tailnet-scoped, filtered from LAN), fixed as Medium.
+- **F-15 proposed `""` fix replaced** with the `#clear` directive (verified live).
+- **F-12 vs nmap reconciled:** port 3000 shows filtered from the LAN **by design** (Tailscale-only policy); the UFW-side allow was removed and the DOCKER-USER side narrowed to physical interfaces so Homepage keeps working.
+
+### NEEDS-HUMAN (still yours)
+
+1. Claim the four admin pages (Jellyfin via the secret or its UI; Jellyseerr `/setup`; Dokploy admin; Kuma admin) — SSH-tunnel URLs + checklists in README.
+2. Jellyfin manual settings (libraries, QSV codecs, per-user stream limit) if the wizard stays manual.
+3. Add Kuma monitors + push/Telegram tokens; paste any tokens via `make secrets-edit` only if you ever choose to.
+4. Phone test (Tailscale off/on) incl. port-3000 gating from the tailnet.
+5. Two real transcodes from client devices (`intel_gpu_top`).
+6. Idle temperature decision (BIOS).
+7. Capture the fresh-VM baseline (`BASELINE_DIR=baseline sh scripts/capture-baseline.sh`, README has the steps) — until then `make verify-clean` errors by design.
+8. Reconnect SSH once (lxd group removal).
+9. Install the real Tailscale app on the Mac.
+10. Approve stage C only after the reboot cause is explained.
+
+### Honest scorecard
+
+- FIXED: 30 (incl. F-28/F-38 via their parents, F-40/F-42/F-35 as documented)
+- ACCEPTED RISK: 3 slices (container hardening remainder; local-only restic; no public apps without tokens)
+- WRONG FINDING: 1 (F-32)
+- OPEN: 3 (F-18 data, F-33 optional, F-36 yours)
+- BLOCKED-BY-SECRET: 6 (F-03, F-04, F-07, F-13, F-14, F-20-part)
+- NEEDS-HUMAN: 10 items above
+
+Spec claims not met in secretless mode (by design, all documented): public apps, private DNS names, real LE certs, Telegram alerts, push monitors, off-box backups, Hermes, Jellyfin automation, tunnel connector.
