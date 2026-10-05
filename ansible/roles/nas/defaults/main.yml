@@ -1,6 +1,0 @@
----
-# NAS defaults. Everything here is inert unless nas_enabled: true (group_vars)
-# AND the drive lists are filled. The role never formats or partitions a disk:
-# formatting lives only in nas-format.yml and needs nas_format_confirm=yes.
-# nas_never_touch lives in group_vars so nas-format.yml can refuse it too.
-nas_pool_mount: "/mnt/pool"

@@ -1,4 +1,0 @@
----
-- name: Refresh apt cache after Tailscale repo
-  ansible.builtin.apt:
-    update_cache: true

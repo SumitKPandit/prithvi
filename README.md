@@ -1,469 +1,159 @@
 # g3plus home server
 
-Infrastructure-as-code for a private home server (GMKtec NucBox G3 Plus: Intel N150, 16 GB RAM, 512 GB NVMe, Ubuntu Server 26.04 LTS).
+Notes and scripts to rebuild my home server from a fresh Ubuntu install. The rule of this repo: **every step is a short script or a short compose file that I have read and run by hand.** No tools I don't understand, nothing hidden.
 
-Anything configured on the server is described here, so the whole thing can be **rebuilt from a fresh Ubuntu install** with a few commands. Ansible configures the host; Docker Compose defines the services.
+## Hardware
 
-## Quick start
+- GMKtec NucBox G3 Plus: Intel N150, 16 GB RAM, 512 GB NVMe
+- Quick Sync GPU (`/dev/dri`) for Jellyfin transcoding later
+- Ethernet port (2.5GbE capable) and Wi-Fi
 
-### Before you touch this repo (do once)
+## How the pieces are layered
 
-1. **BIOS** (physical access). On the NucBox G3 Plus:
-   - Power on after AC power loss: **Enabled**
-   - High-performance mode: **Enabled** (disable later if idle temp approaches 60 °C)
-   - Secure Boot: **keep as-is** (do not apply key updates from fwupdmgr)
+| Layer | What lives there | Here |
+|---|---|---|
+| Hardware | physical parts, BIOS | the NucBox |
+| OS | kernel, drivers, users, disks | Ubuntu Server 26.04 (minimal) |
+| Host services | things that must work without Docker | SSH, Tailscale, Docker itself |
+| Container runtime | runs and isolates containers | Docker + Compose (Ubuntu's own packages) |
+| Containers | one app each, defined by a compose file | Jellyfin, etc. (see `services/`) |
 
-2. **Router.** Reserve `192.168.0.2` for the server's Wi-Fi (`wlp1s0`) MAC in your DHCP settings. Ethernet (`enp3s0`) is unused for now.
+Rule of thumb: keep the host small and boring. Everything else is a container, so `docker compose down` removes it cleanly. Things that change the host itself (disk mounts, firewall, Docker's config) stay on the host.
 
-3. **Install Ubuntu.** Ubuntu Server 26.04.1 LTS, whole NVMe, ext4, no LVM, no encryption, hostname `g3plus`, user `sumit`, OpenSSH enabled.
+## Layout
 
-4. **SSH key** (on your Mac):
+```
+homelab/
+├── README.md
+├── setup/                 # host setup, one script per step, run in order
+│   ├── 01-base.sh         # updates, nano, htop, tmux
+│   ├── 02-tailscale.sh    # Tailscale (login is manual)
+│   └── 03-docker.sh       # Docker, no-sudo group, log size cap
+└── services/              # one folder per service (added step by step)
+    └── <name>/compose.yaml
+```
+
+## Manual steps (cannot be scripted)
+
+Do these once, and again after any reinstall.
+
+1. **BIOS:** set "Restore on AC Power Loss" to Power On. Choose a performance mode (leaving it off keeps idle power and heat lower; stress tests showed no throttling without it).
+2. **Install Ubuntu Server (minimal) from USB:**
+   - storage: whole disk, plain ext4, no LVM
+   - hostname `g3plus`, user `sumit`
+   - install OpenSSH server
+   - select no snaps
+   - plug in Ethernet during install if possible
+3. **Router:** create a DHCP reservation so the server keeps its address. Ethernet hardware address: `e0:51:d8:1e:75:68`. (Wi-Fi has a different one.) Find the current address on the server with `ip -br addr`.
+4. **SSH key from the Mac:**
    ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/sumit_g3plus -C sumit@g3plus
+   ssh-keygen -R <server-address>          # clears the old host key after a reinstall
+   ssh-copy-id -i ~/.ssh/sumit_g3plus.pub sumit@<server-address>
    ```
-   Add to `~/.ssh/config`:
+   `~/.ssh/config` on the Mac:
    ```
    Host g3plus
-       HostName 192.168.0.2
+       HostName <server-address>
        User sumit
        IdentityFile ~/.ssh/sumit_g3plus
        IdentitiesOnly yes
    ```
+5. **Tailscale login** (after running `02-tailscale.sh`):
+   ```bash
+   sudo tailscale up --hostname=g3plus
+   ```
+   Open the link it prints and sign in. Then, in the Tailscale admin console: delete any old `g3plus` entry first, and choose **Disable key expiry** for the new one.
+6. **Take a baseline** right after the install and updates (see below).
 
-### Set up the repo (on your Mac)
+## Running the setup scripts
 
-```bash
-cd /Users/sumitkpandit/codebase/prithvi
-make deps          # install Ansible collections + pre-commit hook
-make bootstrap     # SSH key + passwordless sudo on the server (one sudo prompt)
-make secrets-init  # create the age key (kept outside the repo) + encrypted secrets
-make secrets-edit  # OPTIONAL: fill in external secrets (works fine without any)
-make apply         # configure and deploy everything
-make verify        # smoke tests
-```
-
-**Second run of `make apply` should report `changed=0`** — that means the playbook is idempotent.
-
-**Secretless mode is supported.** With every external secret empty, `make apply` and `make verify` finish cleanly: the secret-gated roles report `NOT DEPLOYED` (WARN, never FAIL), Caddy serves its internal CA, and private hostnames are reached via `/etc/hosts` entries (`make hosts-snippet`) plus the trusted root CA (`make caddy-root-cert`). See "What's disabled until I provide secrets" below.
-
-### What you must do in `make secrets-edit`
-
-Only if you want the matching feature. Everything else works with the key empty:
-
-| Secret | Where to get it |
-|---|---|
-| `tailscale_auth_key` | Tailscale admin console → Keys → "Create key" (nodes type, no expiry). **Disable key expiry for g3plus after first login** (manual step in the admin console). |
-| `cloudflare_api_token` | Cloudflare dashboard → My Profile → API Tokens → "Create token" → **permissions: Zone = (Zone:DNS:Edit, Zone:Zone:Read) on the `sumitkpandit.in` zone**. |
-| `cloudflare_tunnel_token` | Cloudflare dashboard → Zero Trust → Networks → Tunnels → "Create a tunnel" → choose a name → copy the token. |
-| `telegram_bot_token_uptime_kuma` | @BotFather → `/newbot` → copy the token. **Used in the Kuma UI by hand** (see the manual checklist); Ansible only renders `telegram_chat_id` into files. |
-| `telegram_chat_id` | @userinfobot → start, copy your numeric ID. |
-| `hermes_openrouter_api_key` | OpenRouter → Keys → "Create key". **Create a dedicated key** with a credit limit; this is a security boundary (the agent can execute commands). |
-| `restic_repository_password` | Auto-generated by `make secrets-init`. **Keep an offline copy** (password manager). Without it, backups are unreadable. |
-| `rclone_drive_token` | On your Mac: `rclone config` → new drive remote → `rclone authorize "drive"` (browser OAuth) → copy the JSON token. |
-| `jellyfin_admin_password` | Set this before `make apply` if you want the Jellyfin wizard automated. Leave blank for manual first-run. |
-| `hermes_telegram_bot_token` | @BotFather → a second bot for the agent's Telegram chat. |
-| `hermes_dashboard_password` | Any strong password for the Hermes dashboard basic auth. |
-| `uptime_kuma_disk_push_token` | Create a "Push" monitor in Uptime Kuma → copy its URL token. |
-| `uptime_kuma_backup_push_token` | Create a "Push" monitor in Uptime Kuma → copy its URL token. |
-| `vpn_provider` / `vpn_username` / `vpn_password` | Only required when `vpn_enabled: true` (default: `false`). |
-
-### What's disabled until I provide secrets
-
-| Missing secret | What stays off | How to enable it later |
-|---|---|---|
-| `cloudflare_api_token` | The 12 `*.home.sumitkpandit.in` DNS records; real Let's Encrypt certs (Caddy uses its internal CA instead) | Paste the token in `make secrets-edit`, then `make apply` |
-| `cloudflare_tunnel_token` | The `cloudflared` connector (no public apps) | Same as above |
-| `jellyfin_admin_password` | Jellyfin auto-setup (admin, libraries, Quick Sync, stream limit) | Set it, `make apply`; or use the manual checklist below |
-| `uptime_kuma_disk_push_token` | `disk-usage-check.timer`, disk alert at 85% | Create the push monitor, paste token, `make apply` |
-| `uptime_kuma_backup_push_token` | Backup-result push monitor | Same as above |
-| `telegram_bot_token_uptime_kuma` | Uptime Kuma Telegram alerts | Paste into Kuma's notification settings by hand |
-| `hermes_openrouter_api_key` | The whole Hermes role | Set key (+ telegram + dashboard password), `make apply` |
-| `rclone_drive_token` | Google Drive off-site backup (backups stay local-only) | `rclone authorize "drive"`, paste token, `make apply` |
-| `vpn_*` | Gluetun VPN for qBittorrent (stays direct) | Set `vpn_enabled: true` + the triple, `make apply` |
-| `acme_email` (`group_vars`) | Let's Encrypt expiry emails | Set your address in `ansible/group_vars/all.yml` (not a secret) |
-
-### Reaching the private services without DNS records
-
-The `*.home.sumitkpandit.in` names only resolve once the Cloudflare token is set. Until then:
+From the Mac, in this repo:
 
 ```bash
-make hosts-snippet   # prints /etc/hosts lines: LAN block (192.168.0.2) or Tailscale block (100.88.141.33)
-make caddy-root-cert # exports Caddy's internal root CA; trust it on macOS/iOS so browsers stop warning
+scp -r setup sumit@g3plus:~/
+ssh -t sumit@g3plus 'bash setup/01-base.sh'
+ssh -t sumit@g3plus 'bash setup/02-tailscale.sh'
+ssh -t sumit@g3plus 'bash setup/03-docker.sh'
 ```
 
-Add the matching block to `/etc/hosts` on the Mac, install the root CA (Keychain Access → System → Always Trust; iOS via AirDrop → install profile → enable full trust), and open e.g. `https://jellyfin.home.sumitkpandit.in`.
+`-t` gives `sudo` a terminal to ask for your password. Scripts are written to be safe to re-run (a second run should change nothing). **They have not yet been tested from a clean install**; the first real test is the next reinstall.
 
-For the admin-claim pages, SSH tunnels always work regardless of DNS:
-`ssh -L 8096:127.0.0.1:8096 g3plus` (Jellyfin), `5055` (Jellyseerr), `3001` (Uptime Kuma), `3000` (Dokploy).
-
-## What's still manual after `make apply`
-
-1. **Tailscale key expiry** — disable it for the `g3plus` node in the Tailscale admin console.
-2. **Dokploy admin account** — the UI is Tailscale-only. From the Mac: `ssh -L 3000:127.0.0.1:3000 g3plus`, then open `http://localhost:3000` and create the admin. From a tailnet device: `http://100.88.141.33:3000`. (There is no DNS name and no Caddy route for Dokploy; that is deliberate.)
-3. **Jellyfin** — either set `jellyfin_admin_password` and `make apply` (the role finishes the wizard), or do it by hand — see the manual checklist below.
-4. **Jellyseerr** — finish `/setup` by hand (see checklist).
-5. **Uptime Kuma** — create the admin in the UI by hand; add monitors per the checklist; paste the tokens into `make secrets-edit` if you ever want Telegram/push.
-6. **VPN provider** — set `vpn_enabled: true` in `ansible/group_vars/all.yml` and fill the VPN secrets, then `make apply`. Without the VPN, **torrent peers can see your home IP and your ISP can see BitTorrent traffic**. This is a deliberate, documented default.
-7. **Google OAuth client** — for Drive backups, create your own OAuth client at console.cloud.google.com, set publishing status to **In production**, and use `rclone authorize`. A consumer-verification client's refresh token expires after ~7 days.
-8. **Tailscale on the Mac** — the Homebrew `tailscale` shim is broken. Install the real app from <https://tailscale.com/download>, sign in, and remove the shim (`brew uninstall tailscale` if present). Several network checks need the Mac on the tailnet.
-
-### Manual checklists (no secrets needed by the repo)
-
-**Jellyfin** (`ssh -L 8096:127.0.0.1:8096 g3plus` → `http://localhost:8096`):
-- Finish the setup wizard; create the admin user with your own password.
-- Dashboard → Libraries → Add Media: Content type Movies, folders `/data/media/movies`; Content type Shows, folders `/data/media/tv`.
-- Dashboard → Playback → Hardware acceleration: **Intel QuickSync (QSV)**; enable decoding for H264, HEVC, HEVC 10-bit, VP9, AV1; enable encoding for H264, HEVC.
-- Dashboard → Users → your user → set **Simultaneous stream limit** (the role uses `jellyfin_max_sessions: 2` when it automates this).
-- Prove it: play something that transcodes, `ssh g3plus intel_gpu_top` should show the GPU busy.
-
-**Jellyseerr** (`ssh -L 5055:127.0.0.1:5055 g3plus` → `http://localhost:5055/setup`):
-- Sign in via the Jellyfin account you just created; complete `/setup`.
-- Settings → Sonarr/Radarr: point each at the container hostnames on the shared `web` network (`http://sonarr:8989`, `http://radarr:7878`). API keys live in the apps (`/opt/appdata/<app>/config.xml`, `<ApiKey>`).
-
-**Uptime Kuma** (`ssh -L 3001:127.0.0.1:3001 g3plus` → `http://localhost:3001`):
-- Create the admin account.
-- Add one HTTP(s) monitor per private service (the same list Caddy and Homepage use: jellyfin, sonarr, radarr, prowlarr, bazarr, jellyseerr, qbittorrent, homepage, dockge, uptime itself, hermes when deployed) plus host checks the README describes (disk, Docker, SSH, UFW).
-- Create two **Push** monitors (disk usage, backup result); paste their URL tokens into `make secrets-edit` (`uptime_kuma_disk_push_token`, `uptime_kuma_backup_push_token`); `make apply` enables `disk-usage-check.timer`, which pages at 85% disk usage.
-- Notifications → Telegram with your bot token + chat ID (both by hand).
-
-**Dokploy** (`ssh -L 3000:127.0.0.1:3000 g3plus` → `http://localhost:3000`):
-- Create the admin account. Keep GitHub webhooks OFF unless you explicitly want them.
-
-## Day-to-day usage
+After `03-docker.sh`, log out and back in so the `docker` group applies, then check:
 
 ```bash
-make check          # dry run: --check --diff, no changes
-make apply          # deploy everything (idempotent; 2nd run = changed=0)
-make verify         # smoke tests
-make lint           # yamllint + ansible-lint + VPN compose render check
-make secrets-edit   # edit secrets (SOPS opens in $EDITOR)
-make secrets-check  # list EMPTY secrets by name + what each unlocks
-make hosts-snippet  # /etc/hosts lines for private hostnames (no DNS needed)
-make caddy-root-cert # export Caddy's internal root CA for Mac/iOS trust
-make apt-upgrade    # upgrade OS + Docker/Tailscale packages on the server
-make teardown       # remove everything (asks first, asks again about data)
-make verify-clean   # diff server vs baseline (needs baseline/manifest.yaml)
-make nas-format     # DESTRUCTIVE: format the NAS disks (asks first)
+id                          # should list docker
+docker run --rm hello-world
 ```
 
-**Apply one role or stack** (tag-based; the tags are the ones in `site.yml`):
-```bash
-cd ansible
-ansible-playbook site.yml --tags media       # only media stack
-ansible-playbook site.yml --tags dokploy     # only Dokploy
-ansible-playbook site.yml --tags nas         # only NAS (needs nas_enabled: true)
-ansible-playbook site.yml --tags security    # only SSH/UFW/updates/smartd
-```
+## Know what each step changed
 
-There is no `--tags firewall` and no `--tags remove`; removals run through
-`teardown.yml` (see Phase 9). `tasks/remove.yml` does not exist.
-
-**Update an image version** — edit the tag in `roles/<role>/defaults/main.yml`, then `make apply`. No manual `docker pull` needed.
-
-**Add a web app** — see [Phase 5: Web apps via Dokploy](#phase-5-web-apps-via-dokploy).
-
-**Restore from scratch**:
-```bash
-# 1. Fresh Ubuntu install + make bootstrap + make secrets-init + make secrets-edit
-make apply
-# 2. Restore /opt/appdata, /opt/stacks, and database dumps from restic:
-ssh g3plus 'sudo restic -r /opt/backups/restic --password-file /etc/restic.pass restore latest --target /restored'
-```
-
-## Architecture and layout
-
-### Directory layout
-
-```
-.
-├── README.md                  # this file
-├── AUDIT.md                   # independent review + fix status per finding
-├── Makefile                   # thin wrappers: make apply, make verify, etc.
-├── .sops.yaml                 # age key path for secrets encryption
-├── .yamllint / .ansible-lint / .pre-commit-config.yaml
-├── baseline/                  # state of a fresh Ubuntu install (committed, no secrets)
-│   └── manifest.yaml          # where the baseline came from + how to refresh it
-├── scripts/
-│   ├── bootstrap.sh           # one-time SSH key + passwordless sudo setup
-│   ├── secrets-init.sh        # create age key + encrypted secrets
-│   ├── secrets-check.py/.sh   # list EMPTY secrets by name + what each unlocks
-│   ├── capture-baseline.sh    # capture baseline from a fresh Ubuntu install
-│   ├── verify-clean.py/.sh    # diff server vs baseline with the allow-list
-│   ├── check-listeners.py     # listener allow-list used by verify.yml
-│   ├── hosts-snippet.py       # /etc/hosts lines for the private hostnames
-│   └── caddy-root-cert.sh     # export Caddy's internal root CA
-└── ansible/
-    ├── ansible.cfg
-    ├── inventory.yml          # host: g3plus, user, key, python
-    ├── site.yml               # the play: which roles run in which order
-    ├── verify.yml             # smoke tests
-    ├── teardown.yml           # remove everything (needs -e confirm_teardown=yes)
-    ├── nas-format.yml         # format the NAS disks (needs -e nas_format_confirm=yes)
-    ├── vpn-check.yml          # render media stack with vpn_enabled=true and validate
-    ├── group_vars/all.yml     # all host variables
-    ├── secrets.example.yaml   # every secret, with empty values (committed)
-    ├── secrets.sops.yaml      # real secrets, encrypted (committed)
-    └── roles/
-        ├── base/              # admin tools, GPU groups, sudoers, apt keyring dir
-        ├── docker/            # Docker repo, packages, daemon.json, prune timer
-        ├── tailscale/         # Tailscale repo, package, automated login
-        ├── security/          # SSH hardening, UFW, auto-updates, smartd, disk alert
-        ├── storage/           # data layout, media group/user, shared docker network
-        ├── nas/               # SnapRAID + mergerfs (disabled by default)
-        ├── media/             # qBittorrent + optional Gluetun, Arr stack, Jellyfin, Recyclarr
-        ├── proxy/             # Caddy reverse proxy (LE DNS-01 certs, else internal CA)
-        ├── dashboard/         # Homepage dashboard, Dockge, Uptime Kuma
-        ├── hermes/            # AI agent (24/7, OpenRouter + Telegram)
-        ├── dokploy/           # PaaS: Docker Swarm + Traefik + dokploy
-        ├── tunnel/            # cloudflared tunnel connector
-        └── backup/            # restic (+ optional rclone to Google Drive)
-```
-
-### How the pieces fit
-
-**Roles vs. stacks.** Ansible roles (`roles/`) configure the host and deploy Docker Compose stacks (`stacks/`). Running `make apply` does both in one shot. The Compose files live on the server at `/opt/stacks/<name>/compose.yaml` and are managed by Ansible — edits made in the Caddy/Dockge UIs to Ansible-managed stacks are **overwritten** on the next apply.
-
-**Secrets flow.** SOPS encrypts `ansible/secrets.sops.yaml` with your age key (stored in `~/Library/Application Support/sops/age/keys.txt` on the Mac, outside the repo). Ansible decrypts on the Mac during the run (`lookup('community.sops.sops', 'secrets.sops.yaml')`), and only renders `0600` env files reach the server. Secrets are never logged.
-
-**Data layout** on the NVMe:
-```
-/data                         # shared: torrents + library (same FS for hardlinks)
-  ├── torrents/{movies,tv}     # qBittorrent downloads here
-  └── media/{movies,tv}        # Jellyfin library, Sonarr/Radarr root folders
-/opt/appdata/<service>/        # container config (bind-mounted as /config)
-/opt/stacks/<stack>/           # compose.yaml + rendered .env (0600)
-/opt/backups/                  # local restic repo + dumps (moved to NAS pool later)
-```
-This layout is on the whole NVMe now. When you add the NAS role later, **changing `data_root` to `/mnt/pool`** in `group_vars/all.yml` repoints media without touching any Compose file or container path.
-
-### Network and firewall model
-
-| Layer | What | Who sees it |
-|---|---|---|
-| SSH | port 22, LAN only | You, over LAN |
-| Tailscale | `tailscale0` (100.x.x.x) | You, on the road |
-| Private services | Caddy on port 443 bound to **LAN IP 192.168.0.2 and Tailscale IP** | Tailscale + LAN, never internet |
-| DNS | `*.home.sumitkpandit.in` → Tailscale IP (DNS-only, not proxied) — **only once the Cloudflare token is set** | Tailscale/LAN only |
-| Cloudflare Tunnel | `cloudflared` container on `dokploy-network` — **only once the tunnel token is set** | Public web apps only |
-| Docker-published ports | **bypass UFW** (Docker DNATs in PREROUTING) | See "Docker vs UFW" below |
-
-**The UFW policy is: Caddy only.** The only LAN rules are SSH (22), HTTPS via Caddy (443), and the Swarm control-port denies; everything Tailscale-side is allowed on `tailscale0`. The old direct-port LAN rules (Jellyfin, Arr apps, qBittorrent UI) were deleted — reach the apps through Caddy or an SSH tunnel.
-
-**Docker vs UFW.** Published container ports bypass UFW's INPUT chain — Docker's iptables rules run first. Two mitigations are used here:
-1. Compose binds every published port to `127.0.0.1` or a specific LAN/Tailscale address — never `0.0.0.0`, except Dokploy's swarm-published port 3000 (host mode, forced by the installer).
-2. A `DOCKER-USER` chain rule (installed by the security role and re-applied on boot) drops **only packets arriving on a physical interface** for port 3000. This keeps Dokploy's admin UI Tailscale-only without eating forwarded bridge traffic — the old "deny everything but tailscale0" form broke Caddy's path to Homepage on :3000 (502). Both `iptables` and `ip6tables` carry the rule.
-
-### Listening ports (authoritative)
-
-| Port | Bind | What | Guard |
-|---|---|---|---|
-| 22 | `0.0.0.0`, `[::]` | SSH | UFW: LAN only |
-| 443 | `192.168.0.2`, `100.88.141.33` | Caddy | UFW: LAN; tailscale0 accept |
-| 6881 | `192.168.0.2` | qBittorrent torrents | UFW: no rule needed (bound address) |
-| 3000 | `0.0.0.0`, `[::]` | Dokploy admin UI (swarm host mode) | DOCKER-USER per-interface DROP; Tailscale-only |
-| 2377/7946/4789 | `*` | Docker Swarm control/data | UFW DENY before the tailscale0 accept |
-| 8096/8989/7878/9696/6767/5055/8080/8191 | `127.0.0.1` | Jellyfin/Arr/Jellyseerr/qBittorrent/flaresolverr | Local only; Caddy proxies them |
-| tailscaled ephemeral | tailnet IPs | Tailscale daemon | tailscaled itself |
-
-`verify.yml` and `make verify-clean` both fail if anything else listens.
-
-### Address scheme
-
-| Scheme | Example | Reachable from | TLS |
-|---|---|---|---|
-| Private (with token) | `jellyfin.home.sumitkpandit.in` | Tailscale + LAN | Let's Encrypt (DNS-01) via Caddy |
-| Private (secretless) | same hostnames via `make hosts-snippet` | Tailscale + LAN | Caddy internal CA (trust via `make caddy-root-cert`) |
-| Public (with tunnel) | `<app>.sumitkpandit.in` | Internet | Let's Encrypt via Cloudflare Tunnel |
-
-## Safety notes
-
-- **SSH/firewall:** SSH hardening and UFW both take effect live. Keep a second SSH session open while applying the `security` role. Rollback: remove `/etc/ssh/sshd_config.d/00-hardening.conf` and `sudo ufw disable`.
-- **sudo-rs gotcha:** Ubuntu 26.04 uses `sudo-rs`, whose password prompt Ansible's `become` cannot parse. The bootstrap installs a passwordless sudoers file before Ansible runs; after that, everything escalates cleanly with no password.
-- **`--check` limitations:** check mode cannot fully simulate a fresh install (packages from a just-added repo, groups created by packages, unit-file deployment in early boot). `--check` may report errors on those tasks; the real run is authoritative. The verify playbook is the real test.
-- **SnapRAID is not a backup.** It provides drive redundancy (parity), not off-site backup. Backups to Google Drive via restic are separate (see Phase 7).
-- **UPS has no auto-shutdown.** The Artis PS-600VA has no USB data port. Power loss = hard power-off. No automated shutdown.
-- **Secure Boot updates not applied.** `fwupdmgr` offers Secure Boot key updates (dbx, CA 2011→2023); these are intentionally skipped to avoid boot issues.
-- **Reboots:** Unattended-upgrades install security updates and auto-reboot at **03:00 IST** (21:30 UTC on the UTC host) only when a reboot is required.
-- **2026-10-04: three unexplained reboots.** The box rebooted at ~09:08, ~09:36 and ~10:20 UTC with no logind/shutdown request, no panic, no matching unattended-upgrades schedule. The NVMe `Unsafe Shutdowns` counter rose 13 → 21 (hard power loss signature). Under investigation — see `AUDIT.md`. Do not start stage C until this is explained.
-- **Age private key backup:** The one thing in this repo you cannot recover. If you lose `~/Library/Application Support/sops/age/keys.txt`, your encrypted secrets are gone. Back it up now.
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| SSH key not offered | `ssh -v g3plus` — ensure `~/.ssh/config` has `IdentitiesOnly yes`; the agent may hold other keys. |
-| Ansible becomes timeout ("timeout (10s)" waiting for privilege escalation) | The passwordless sudoers file is missing or the agent is presenting the wrong key. Run `make bootstrap`. |
-| New groups (docker, render, video) not active in shell | Reconnect SSH. Groups apply at login; `newgrp` is not enough for Docker. |
-| Ghostty TERM errors over SSH | `export TERM=xterm-256color` or run `infocmp -x xterm-ghostty \| ssh g3plus -- tic -x -` to install the terminfo. |
-| qBittorrent can't connect to VPN | Verify `vpn_enabled: true` and VPN credentials are filled in `make secrets-edit`. |
-| Jellyfin hardware transcoding not working | `ssh g3plus intel_gpu_top` while a stream transcodes; Caddy must proxy `jellyfin.home.sumitkpandit.in`. |
-| Docker container fails to start at boot | Check `/var/lib/docker` disk space; verify `net.ipv4.ip_nonlocal_bind = 1` (set by the docker role). |
-| `make apt-upgrade` left dpkg interrupted | `ssh g3plus 'sudo apt --fix-broken install'` then re-run; `full-upgrade` can stall halfway on a failed postinst. |
-| `make deps` installed duplicate collections | `make deps` uses `--force`, which can land a second copy under `~/.ansible/collections`. One location wins; harmless, but `rm -rf ~/.ansible/collections` + re-run pins a single copy. |
-| `/opt/stacks/media/.env` is empty (0 bytes) | Expected when `vpn_enabled: false` — the file exists so compose always has an env file; VPN creds fill it when enabled. |
-| No Let's Encrypt expiry emails | Set `acme_email` in `ansible/group_vars/all.yml` (plain var, not a secret). Empty means no expiry notices. |
-| `50-cloud-init.conf` still says `PasswordAuthentication yes` | Harmless: `00-hardening.conf` sorts first and wins (`sshd -T` proves it), and `/etc/cloud/cloud.cfg.d/99-no-password-auth.cfg` tells cloud-init never to re-enable it. |
-
----
-
-## Phase-by-phase
-
-### Phase 0: Tooling and bootstrap
-
-`make deps` installs all collections. `make bootstrap` runs `scripts/bootstrap.sh`, which SSHes in once, copies your public key, and writes `/etc/sudoers.d/90-sumit` (validated with `visudo -cf`). This is the single manual step after a fresh Ubuntu install.
-
-`make secrets-init` creates the age key outside the repo and encrypts `ansible/secrets.sops.yaml` (pre-filled with generated `internal_*` keys). `make secrets-edit` opens the encrypted file for editing.
-
-### Phase 1: Host foundation
-
-- **Secrets:** SOPS + age encryption (see Quick start).
-- **Tailscale:** installed and auto-logged-in with the auth key from secrets. The login task only runs when `tailscale status --json` shows the node is not running — idempotent.
-- **SSH hardening:** a drop-in at `/etc/ssh/sshd_config.d/00-hardening.conf` (sorts before `50-cloud-init.conf`, so it wins). Key-only, no root, no password. Validated with `sshd -t` before reload.
-- **Firewall (UFW):** default deny incoming, allow outgoing; SSH (22) + HTTPS-via-Caddy (443) from `192.168.0.0/24`, everything on `tailscale0`, and explicit DENY rules for the Swarm control ports 2377/7946/4789 ordered before the tailscale0 accept. Applies **before** enabling. Dokploy's port 3000 is handled separately in `DOCKER-USER` (see "Docker vs UFW").
-- **Auto-updates:** security-only `unattended-upgrades`, auto-reboot at 03:00 IST when required (with `WithUsers=true`).
-- **Docker daemon:** `json-file` logging with `max-size: 10m, max-file: 3`.
-- **Time/SMART:** `chrony` for NTP; `smartd` runs short tests Wed 03:00 UTC, long tests Sat 13:00 UTC.
-- **Housekeeping:** weekly `docker image prune -f` (dangling only, never volumes).
-
-### Phase 2: Storage and Compose deployment
-
-Data layout on the NVMe, designed for hardlinks/atomic moves and later repointing to a mergerfs pool:
-
-```
-/data
-├── torrents/{movies,tv}
-└── media/{movies,tv}
-/opt/appdata/<service>/
-/opt/stacks/<stack>/
-```
-
-A dedicated `media` user/group (UID/GID 2000) is used by all media containers (`PUID=2000 PGID=2000`). A shared `web` bridge network lets stacks talk by container name.
-
-Ansible deploys Compose stacks by templating `compose.yaml` and `.env` from vars + decrypted secrets, then running `docker_compose_v2`. `.env` files are mode `0600` root-owned.
-
-### Phase 3: Media stack
-
-- **qBittorrent** with optional **Gluetun** (`network_mode: service:gluetun`) when `vpn_enabled: true` (default `false`). The VPN kill switch is inherent: if the tunnel drops, qBittorrent gets no connectivity (it shares gluetin's namespace). When the VPN is off, ports bind only to `127.0.0.1` and the LAN IP. `make lint` renders the stack with `vpn_enabled=true` and runs `docker compose config -q` so the toggle can never silently break again.
-- **Arr stack** (default on): Prowlarr, Sonarr, Radarr, Bazarr, FlareSolverr, Jellyseerr. API keys pre-seeded from secrets; apps wired together through their APIs idempotently (root folders, download client, indexer sync). Bazarr's API key is seeded on fresh installs only (it lives in `config/config.yaml`).
-- **Recyclarr** (`ghcr.io/recyclarr/recyclarr:8.7.1`): weekly timer (`recyclarr.timer`, Saturdays 04:00 UTC) syncs the TRaSH guides' quality definitions, quality profiles, custom formats and naming into Sonarr (`WEB-1080p`) and Radarr (`HD Bluray + WEB`) using the repo's pre-seeded keys. One-shot by design (`tools` compose profile); run `sudo systemctl start recyclarr.service` for an out-of-band sync.
-- **Jellyfin** with `/dev/dri` passed through, `group_add` with the host render GID (discovered at apply time, never hardcoded). Quick Sync (VAAPI/QSV): H.264, HEVC 8/10-bit, VP9 (encode+decode), AV1 decode. AV1 **cannot** be hardware-transcoded (decode only).
-- **Max 2 simultaneous streams:** enforced per-user via `MaxActiveSessions=2` (Jellyfin has no global cap). This limits each user to 2 concurrent streams. For a hard global cap across all users, use a reverse-proxy-level connection limit (documented; not automated).
-
-Manual first-run: Jellyfin wizard (if `jellyfin_admin_password` is empty in secrets), indexer login credentials (fill in the UI once Sonarr/Radarr are up).
-
-### Phase 4: Access, proxy, dashboard, monitoring
-
-- **Access model:** Caddy reverse proxy for private services. With the Cloudflare token: a single wildcard cert via DNS-01 (`*.home.sumitkpandit.in`). Without it (secretless mode): Caddy's internal CA — documented, expected, and asserted by `verify.yml`. Ports `443` bound to LAN and Tailscale IPs only.
-- **Dockge** for viewing/managing stacks. `/opt/stacks` is mounted read-only, but the Docker socket is mounted **read-write** (`/var/run/docker.sock:/var/run/docker.sock`) — Dockge can start/stop any container. Accepted risk: the UI is reachable only via Caddy (LAN/Tailscale), never published. Same posture for Dokploy (`/var/run/docker.sock` rw) and read-only for dokploy-traefik (`:ro`). Homepage mounts no socket at all.
-- **Uptime Kuma** for monitoring: host checks (disk, Tailscale, Docker, SSH, UFW) plus per-service HTTP checks. Telegram bot notifications. The Kuma MariaDB dump (`kuma.sql.gz` via `mariadb-dump` through the container socket) is backed up; the raw `mariadb/` datadir is excluded from restic.
-- **Homepage** dashboard listing all services, rendered from the same service list as Caddy/DNS (no drift). `HOMEPAGE_ALLOWED_HOSTS` is set so Caddy's vhost passes host validation.
-
-### Phase 5: AI agent and web apps
-
-- **Hermes agent** (`nousresearch/hermes-agent`): 24/7, OpenRouter + Telegram. Security posture: no `docker.sock` mount, only its own data volume, `mem_limit: 4g / cpus: 2.0`, `approvals.mode: manual` (every dangerous command needs a human Telegram reply, fails closed). Dashboard at `hermes.home.sumitkpandit.in` with basic auth. Gated on the OpenRouter API key being in secrets.
-- **Dokploy** (PaaS): installs via the official script, initializes single-node Docker Swarm (advertise on the LAN IP), runs its own Traefik on `dokploy-network`. Host ports 80/443 are stripped (Caddy owns them). Admin UI on port 3000 is Tailscale-only (DOCKER-USER rule). Gated on `dokploy_enabled: true` (default).
-- **Cloudflare Tunnel:** `cloudflared` container joins `dokploy-network` and reaches dokploy-traefik by name. Public app hostnames are configured in the Cloudflare dashboard (manual), not Ansible.
-- **Web app deployment:** connect GitHub in the Dokploy UI → create an app → attach a hostname under `sumitkpandit.in`. The tunnel routes to dokploy-traefik → your app. Sample app and full walkthrough in the README.
-- **GitHub webhooks:** the least-exposure option is to tunnel only the webhook path in the Cloudflare dashboard (a single public hostname path pointed at Dokploy). This requires a stable public hostname. If you prefer no inbound webhook at all, deploy via GitHub Actions pushing to Git, polled by Dokploy. **This is a manual choice — ask before enabling.**
-
-### Phase 6: NAS (disabled by default)
-
-The `nas` role is gated by `nas_enabled: false`. It implements SnapRAID + mergerfs:
-
-- Drives mounted by UUID under `/mnt/disk*` (data, from `nas_data_disks`) and `/mnt/parity*` (parity, from `nas_parity_disks`). The parity drive must be ≥ the largest data drive. Lists must be non-empty, non-overlapping, and are refused when a drive matches `nas_never_touch`.
-- mergerfs pool at `/mnt/pool` (default: union of each disk's `/media` plus `/data/media`).
-- **Never formats or partitions anything.** Formatting lives only in `ansible/nas-format.yml`, which needs `-e nas_format_confirm=yes` (`make nas-format` prompts first), asserts `device_id` per disk, and refuses never-touch and absent devices.
-- **Never touches** the existing bus-powered Seagate Backup Plus Slim drives (NTFS, likely SMR, not for 24/7).
-- Switch-over: set `data_root: /mnt/pool` in `group_vars/all.yml` — containers keep the same mount paths.
-- **SnapRAID is not a backup.** Keep a separate backup strategy.
-
-### Phase 7: Backups
-
-- `restic`, daily at 01:30 UTC (07:00 IST). Local repo at `/opt/backups/restic`, mirrored to Google Drive with `rclone` once `rclone_drive_token` is set.
-- Scope: `/opt/appdata` (raw `uptime-kuma/mariadb` excluded — the coherent `kuma.sql.gz` dump is backed up instead; Dokploy's live `dokploy-postgres` volume excluded — `dokploy-postgres.sql.gz` instead), `/opt/stacks`, `/etc/dokploy`, database dumps. **Media is not backed up** (re-fetchable; NAS parity covers local redundancy).
-- **Honest limitation:** the local restic repo sits on the same NVMe as the data. It protects against your own mistakes (deleted files, bad upgrades), **not** against drive failure. Drive failure is only covered once the Drive token exists.
-- **Credential-free option:** point restic at a USB drive later (`restic -r /mnt/usb/restic ...`). Tradeoffs: it is only as fresh as the last manual run, it lives in the same house (fire/theft), and the drive must be ext4 and mounted before the backup timer fires — not implemented, ask before wiring it.
-- Retention: 7 daily, 4 weekly, 6 monthly.
-- Weekly maintenance: prune, sync to Drive (when the token exists), `restic check --read-data-subset=1/7`, and a restore drill (extract one file from the latest snapshot to prove restores work).
-- Failures notify you through a Uptime Kuma push monitor (once its token exists).
-- **Manual step:** authorize Google Drive once on your Mac (`rclone authorize "drive"`), paste the token into `make secrets-edit`. Use your own OAuth client set to "In production" so the refresh token does not expire after ~7 days.
-- **Offline backup:** print a copy of the restic repository password and store it safely. Without it, backups are unreadable.
-
-### Phase 8: Verification
-
-`make verify` runs `ansible/verify.yml`, which asserts (secret-conditional pieces report `NOT DEPLOYED` at WARN level and skip when their secret is empty):
-
-- SSH key login works (implicit: this playbook connects).
-- User is in `docker`, `render`, `video` groups.
-- Docker is active and enabled on boot.
-- `daemon.json` has log rotation configured.
-- `net.ipv4.ip_nonlocal_bind = 1`.
-- Tailscale is logged in, online, with the expected IP.
-- Effective sshd config (from `sshd -T`) is hardened.
-- UFW is active, matches the repo's ruleset, with the Swarm denies before the tailscale0 accept.
-- The ip6tables `DOCKER-USER` chain mirrors the v4 port-3000 gate.
-- No listener outside the allow-list (`scripts/check-listeners.py`: address+port policy).
-- Unattended-upgrades auto-reboot is enabled (security+ESM origins only).
-- Chrony is synced.
-- smartd is active.
-- Weekly image-prune timer is enabled.
-- All media containers are running/healthy; recyclarr profiles (`WEB-1080p`, `HD Bluray + WEB`) are synced; `recyclarr.timer` is on.
-- Every standalone container has a restart policy.
-- Jellyfin sees `/dev/dri/renderD128` (QSV assertion runs once the admin password is set).
-- Caddy + Dockge + Uptime Kuma + Homepage containers are running; Homepage answers 200 behind Caddy; the served cert issuer matches the deployment mode (internal CA vs public ACME).
-- Private service HTTPS endpoints respond (when Cloudflare token is set).
-- VPN egress IP check (only when `vpn_enabled: true`).
-- DOCKER-USER per-interface port-3000 gates are in place (v4+v6), old overbroad form gone, boot unit enabled.
-- No wildcard `0.0.0.0:80/443` binding; Dokploy Traefik publishes no host ports.
-- Dokploy services are at full replicas (when enabled).
-- Backup timers are active; restic repo has snapshots and passes `check`; the Dokploy postgres dump is seeded.
-- Secrets/state agreement: if a secret is set, the matching deployment must exist.
-
-`make verify-clean` diffs the live server against the committed `baseline/` with the allow-list in `scripts/verify-clean.py`. The baseline must come from a **genuinely fresh Ubuntu 26.04 install**, never this server:
+Before installing anything new, record the current state:
 
 ```bash
-# 1. On the Mac: UTM + x86_64 Ubuntu Server 26.04 image (g3plus is x86_64;
-#    ARM package lists differ), minimal install, SSH on, note the VM IP.
-# 2. From the repo root:
-BASELINE_DIR=baseline sh scripts/capture-baseline.sh user@<vm-ip>
-# 3. Fill in baseline/manifest.yaml, check for secrets, commit.
-git add baseline && git commit -m "baseline: fresh Ubuntu 26.04 state"
-# 4. Then:
-make verify-clean
+mkdir -p ~/baseline && cd ~/baseline
+dpkg-query -W -f='${Package}\n' | sort > packages.txt
+systemctl list-unit-files --state=enabled > services.txt
+sudo ss -tulpn > ports.txt
+ip -br addr > network.txt
 ```
 
-Allowed drift (everything else fails): package version bumps, newer kernels, the bootstrap SSH key + sudoers file, the documented Ansible-managed `/etc` files/units/dirs, `media` user/group.
-
-### Phase 9: Teardown
-
-To remove everything the repo provisioned (runs **from the Mac** — Ansible is not installed on the server):
+After a step, compare:
 
 ```bash
-make teardown    # asks first, then asks again about DATA deletion
-# or directly:
-cd ansible && ansible-playbook teardown.yml -e confirm_teardown=yes
+dpkg-query -W -f='${Package}\n' | sort | diff ~/baseline/packages.txt -
+systemctl list-unit-files --state=enabled | diff ~/baseline/services.txt -
+sudo ss -tulpn | diff ~/baseline/ports.txt -
+ip -br addr | diff ~/baseline/network.txt -
 ```
 
-Teardown runs every role's `remove.yml` in reverse order (backup → tunnel → dokploy → hermes → dashboard → proxy → media → nas → storage → security → tailscale → docker → base). It **never reboots** unless you pass `-e teardown_reboot=yes`.
+Lines starting with `>` were added, `<` were removed, and no output means nothing changed. To see every package install ever made on this machine:
 
-Data protection: `-e teardown_data=yes` adds deletion of `/data`, `/opt/appdata`, `/opt/backups`, Dokploy's named volumes, and `/etc/dokploy`. Without it, teardown removes services and Ansible-managed configs but **preserves all data and the restic backup repo**. NAS drives are never touched by teardown.
+```bash
+grep -E "Start-Date|Commandline" /var/log/apt/history.log
+```
 
-**What teardown does NOT do (manual):**
-- Delete the Cloudflare tunnel and DNS records (do in the Cloudflare dashboard).
-- Remove the Tailscale node entry (remove in the admin console).
-- Delete the restic repo on Google Drive (delete in Drive or via rclone).
-- Revoke the Cloudflare API token, OpenRouter key, or delete the Telegram bots (their dashboards).
+## Watching resources
 
-## Environment variables
+```bash
+free -h            # memory
+htop               # live CPU and memory per process
+docker stats       # live CPU and memory per container
+docker system df   # disk used by images, containers, volumes
+df -h /            # disk free
+sensors            # temperatures (install lm-sensors first)
+```
 
-All configurable values live in `ansible/group_vars/all.yml`. Key toggles:
+## What each step changes on the host
 
-| Variable | Default | Description |
-|---|---|---|
-| `vpn_enabled` | `false` | Enable qBittorrent behind Gluetun (requires VPN secrets) |
-| `nas_enabled` | `false` | Enable SnapRAID + mergerfs NAS role |
-| `dokploy_enabled` | `true` | Install Dokploy PaaS |
-| `media_uid` / `media_gid` | `2000` | Shared UID/GID for media containers |
-| `data_root` | `/data` | Top-level data path (repoint to NAS pool later) |
-| `tailscale_ip` | `100.88.141.33` | Your server's Tailscale IP |
-| `lan_ip` | `192.168.0.2` | Your server's LAN IP |
+- **01-base:** installs Ubuntu packages (updates, nano, htop, tmux). Undo: `sudo apt purge nano htop tmux`.
+- **02-tailscale:** adds Tailscale's apt repo (`/etc/apt/sources.list.d/tailscale.list`), installs the `tailscale` package, enables the `tailscaled` service. Undo: `sudo tailscale logout && sudo apt purge tailscale`, then delete the `tailscale.list` file.
+- **03-docker:** installs `docker.io`, `docker-compose-v2` and dependencies from Ubuntu's repos; creates the `docker` group and a `docker0` bridge; adds the user to the `docker` group (members can effectively act as root on this machine); writes `/etc/docker/daemon.json` (container logs capped at 3 files of 10 MB); Docker manages its own firewall rules. Undo: `sudo apt purge docker.io docker-compose-v2`. To also delete all images and data: `sudo rm -rf /var/lib/docker` (destructive).
+
+## Rules for adding a service
+
+1. Create `services/<name>/compose.yaml`. One folder per service.
+2. Keep the data in a visible folder (a bind mount, for example `/srv/<name>`), not in a hidden named volume.
+3. Pin image versions (no `:latest`).
+4. Bind ports to a specific address where possible, and never port-forward on the router. Reach services over Tailscale.
+5. Run it with `docker compose up -d` and remove it with `docker compose down`.
+6. Take a baseline before, compare after, and write down any host-level change here.
+
+## Not decided yet
+
+- Reverse proxy and HTTPS names for services (nothing needed until there is more than one web UI)
+- Backups (start simple: copy config folders; later maybe restic to an external drive or cloud)
+- SSH hardening (key-only login) once key login is proven from every device I use
+- Firewall (ufw): note that Docker-published ports bypass ufw, so bind ports to specific addresses instead of relying on it
+- NAS storage (external drives, SnapRAID/mergerfs) when the hardware arrives
+- AI agent and web app hosting, after the media services work
+
+## Progress
+
+- [x] Fresh Ubuntu Server (minimal), SSH with key
+- [x] Tailscale installed and logged in
+- [ ] Docker installed and tested
+- [ ] Jellyfin with Quick Sync
+- [ ] Download tools, one at a time
+- [ ] Backups
+- [ ] AI agent
+- [ ] Web apps
